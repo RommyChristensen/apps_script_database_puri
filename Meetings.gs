@@ -1,7 +1,7 @@
 /**
- * Meeting tracker: coaches log meetings with their CGLs / CG members.
+ * Meeting tracker ("Pertemuan" in the app): coaches log meetings with their CGLs / CG members.
  *
- * Stored in the "Meeting Log" tab (CONFIG.MEETING_SHEET_NAME), one row per
+ * Stored in the "Log Pertemuan" tab (CONFIG.MEETING_SHEET_NAME), one row per
  * task. A meeting with three action items is three rows sharing a MEETING ID;
  * a meeting without tasks is a single row with an empty TO DO.
  *
@@ -65,8 +65,8 @@ function saveMeeting(token, meeting) {
 
     if (id) {
       const old = rows.filter(function (r) { return r.id === id; });
-      if (!old.length) throw new Error('Meeting ini sudah tidak ada. Refresh dulu.');
-      if (!canAccessCoach_(session, old[0].coach)) throw new Error('Kamu tidak punya akses ke meeting ini.');
+      if (!old.length) throw new Error('Pertemuan ini sudah tidak ada. Refresh dulu.');
+      if (!canAccessCoach_(session, old[0].coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
       createdBy = old[0].createdBy || createdBy;
       createdAt = old[0].createdAt || createdAt;
       deleteMeetingRows_(sheet, old);
@@ -96,11 +96,11 @@ function setTaskDone(token, meetingId, taskNo, done) {
   const session = requireSession_(token, ss);
   return withMeetingLock_(function () {
     const sheet = getMeetingSheet_(ss, false);
-    if (!sheet) throw new Error('Meeting ini sudah tidak ada. Refresh dulu.');
+    if (!sheet) throw new Error('Pertemuan ini sudah tidak ada. Refresh dulu.');
     const rows = readMeetingRows_(sheet);
     const row = rows.filter(function (r) { return r.id === String(meetingId) && r.no === String(taskNo) && r.task; })[0];
     if (!row) throw new Error('Tugas ini sudah tidak ada. Refresh dulu.');
-    if (!canAccessCoach_(session, row.coach)) throw new Error('Kamu tidak punya akses ke meeting ini.');
+    if (!canAccessCoach_(session, row.coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
     sheet.getRange(row.row, MEETING.HEADERS.indexOf('SELESAI') + 1).setValue(done ? '✔' : '-');
     sheet.getRange(row.row, MEETING.HEADERS.indexOf('DIPERBARUI') + 1)
       .setValue(Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm'));
@@ -115,8 +115,8 @@ function deleteMeeting(token, meetingId) {
   return withMeetingLock_(function () {
     const sheet = getMeetingSheet_(ss, false);
     const rows = sheet ? readMeetingRows_(sheet).filter(function (r) { return r.id === String(meetingId); }) : [];
-    if (!rows.length) throw new Error('Meeting ini sudah tidak ada. Refresh dulu.');
-    if (!canAccessCoach_(session, rows[0].coach)) throw new Error('Kamu tidak punya akses ke meeting ini.');
+    if (!rows.length) throw new Error('Pertemuan ini sudah tidak ada. Refresh dulu.');
+    if (!canAccessCoach_(session, rows[0].coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
     deleteMeetingRows_(sheet, rows);
     SpreadsheetApp.flush();
     return meetingsPayload_(ss, session);
@@ -206,18 +206,18 @@ function meetingsPayload_(ss, session) {
 }
 
 function validateMeeting_(m) {
-  if (!m || typeof m !== 'object') throw new Error('Data meeting tidak valid.');
+  if (!m || typeof m !== 'object') throw new Error('Data pertemuan tidak valid.');
   const date = toIsoDate_(m.date);
-  if (!date) throw new Error('Isi tanggal meeting.');
+  if (!date) throw new Error('Isi tanggal pertemuan.');
   const people = (Array.isArray(m.people) ? m.people : [])
     .map(function (p) { return String(p || '').trim(); })
     .filter(function (p, i, all) { return p && all.indexOf(p) === i; });
   if (!people.length) throw new Error('Pilih minimal satu orang.');
-  if (people.length > MEETING.MAX_PEOPLE) throw new Error('Maksimal ' + MEETING.MAX_PEOPLE + ' orang per meeting.');
+  if (people.length > MEETING.MAX_PEOPLE) throw new Error('Maksimal ' + MEETING.MAX_PEOPLE + ' orang per pertemuan.');
   const category = String(m.category || '').trim();
-  if (MEETING.CATEGORIES.indexOf(category) < 0) throw new Error('Pilih kategori tujuan meeting.');
+  if (MEETING.CATEGORIES.indexOf(category) < 0) throw new Error('Pilih kategori tujuan pertemuan.');
   const purpose = String(m.purpose || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
-  if (purpose.length < 3) throw new Error('Tulis tujuan meeting.');
+  if (purpose.length < 3) throw new Error('Tulis tujuan pertemuan.');
   const tasks = (Array.isArray(m.tasks) ? m.tasks : []).map(function (t) {
     const text = String((t && t.text) || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const raw = String((t && t.deadline) || '').trim();
@@ -225,7 +225,7 @@ function validateMeeting_(m) {
     if (raw && !deadline) throw new Error('Deadline "' + raw + '" tidak valid.');
     return { text: text, deadline: deadline, done: !!(t && t.done) };
   }).filter(function (t) { return t.text; });
-  if (tasks.length > MEETING.MAX_TASKS) throw new Error('Maksimal ' + MEETING.MAX_TASKS + ' tugas per meeting.');
+  if (tasks.length > MEETING.MAX_TASKS) throw new Error('Maksimal ' + MEETING.MAX_TASKS + ' tugas per pertemuan.');
   const id = m.id ? String(m.id).replace(/[^A-Za-z0-9]/g, '') : '';
   return { id: id, date: date, people: people, category: category, purpose: purpose, tasks: tasks };
 }

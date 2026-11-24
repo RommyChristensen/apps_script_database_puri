@@ -7,8 +7,13 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   **Authentication** tab and only sees (and can only edit) the people of their own coach group.
   Admin accounts (the team leader) see every coach.
 
-- **Menu**: *Dashboard* and *Meeting* (in the topbar on desktop, a bottom tab bar on phones).
-- **Meeting log**: coaches record every meeting with their CGLs / CG members: date, with whom (picked
+- **Menu**: *Dashboard*, *Pertemuan* and *LDP* (in the topbar on desktop, a bottom tab bar on phones).
+- **LDP (Leaders Development Program)**: every person's path Member → Sponsor → CGL → Coach → Team Leader
+  with a *target* date and a *realization* date per step. Each month, record the result for the person's
+  current step: **Berhasil** fills the realization date and moves POSISI up (Member/Sponsor/CGL);
+  **Belum** needs a note and can move the target. Filters for *perlu update bulan ini*, overdue targets and
+  people without a target; every update is kept in the **LDP Progress** tab.
+- **Log Pertemuan**: coaches record every meeting with their CGLs / CG members: date, with whom (picked
   from their own people), a purpose category + description, and an action list where each task has a
   deadline and a done-checkmark the coach can tick. Filters for open / overdue / done tasks, purpose and
   text search; overdue tasks show a red badge on the menu. Each person's profile lists their meetings
@@ -29,8 +34,10 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | --- | --- |
 | `Code.gs` | `doGet`, `getDashboardData`, `updatePerson`, and the sheet parser (finds columns by header name) |
 | `Auth.gs` | Login, password hashing, sessions, and the per-coach access checks |
-| `Meetings.gs` | Meeting log: read, save, tick a task, delete (per-coach access) |
-| `MeetingsUi.html` | Menu, Meeting page, meeting form and the meeting section in profiles |
+| `Meetings.gs` | Log Pertemuan: read, save, tick a task, delete (per-coach access) |
+| `MeetingsUi.html` | Menu, Pertemuan page, the form and the Pertemuan section in profiles |
+| `Ldp.gs` | LDP: targets, realization dates and the monthly berhasil/belum updates |
+| `LdpUi.html` | LDP page and the per-person LDP update form |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
 | `appsscript.json` | Manifest: Sheets scope, web app runs as the owner, open to anyone (login required inside) |
 | `dev/build-preview.js` | Builds `dev/preview.html`: the real `Code.gs` running in the browser on a fake sheet |
@@ -40,7 +47,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth` and `Meetings`, plus HTML files named `Index`, `Stylesheet`, `JavaScript` and `MeetingsUi`.
+   script files `Code`, `Auth`, `Meetings` and `Ldp`, plus HTML files named `Index`, `Stylesheet`, `JavaScript`,
+   `MeetingsUi` and `LdpUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -98,7 +106,27 @@ clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboar
 clasp push && clasp deploy
 ```
 
-## Meeting Log tab
+## LDP columns and the LDP Progress tab
+
+The database tab has a target and a realization column for each step (dates written like `15 June 2026`):
+
+| Step | Target | Tercapai |
+| --- | --- | --- |
+| Member | TARGET JD MEMBER | TGL JD MEMBER |
+| Sponsor | TARGET JD SPONSOR | TGL JD SPONSOR |
+| CGL | TARGET JD CGL | TGL JD CGL |
+| Coach | TARGET JD COACH | TGL JD COACH |
+| Team Leader | TARGET JD TEAM LEADER | TGL JD TEAM LEADER |
+
+A person's *current step* is the first one not reached yet (a step counts as reached when its TGL is filled,
+or POSISI is already at or above it). Older month-only values such as `June 2025` still work and count as the
+end of that month.
+
+**LDP Progress** gets one row per monthly update: `TANGGAL UPDATE | COACH | NAMA | NIJ | TAHAP | TARGET | HASIL
+(Berhasil/Belum) | TGL TERCAPAI | TARGET BARU | CATATAN | OLEH | DICATAT PADA`. Coaches update their own people;
+admin updates everyone.
+
+## Log Pertemuan tab
 
 One row per task; a meeting with several action items has several rows with the same `MEETING ID`
 (a meeting without tasks is one row with an empty `TO DO`).

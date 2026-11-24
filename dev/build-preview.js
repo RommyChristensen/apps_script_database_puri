@@ -27,8 +27,9 @@ function parseCsv(t) {
   return rows;
 }
 
-const HEADER = ['', 'NO CG', 'NAMA', 'STATUS CG', 'WAKTU CG', 'DAERAH CG', 'DOMISILI (KECAMATAN)', 'EMAIL', 'NO HP', 'CGL', 'GENDER', 'NIJ', 'POSISI', 'STATUS', 'KOTA KELAHIRAN', 'TTL', 'ALAMAT', 'NO HP', 'KERJA/KULIAH', 'KAMPUS', '5M', '', '', '', '', 'MSJ', '', '', 'CGT', '', '', 'PELAYANAN', 'TARGET JD MEMBER', 'TGL JD MEMBER', 'TARGET JD SPONSOR', 'TGL JD SPONSOR', 'TARGET CGL', 'TARGET JD COACH', 'KETERANGAN', 'AGE', 'ELIGIBLE TL', 'ELIGIBLE COACH', 'ELIGIBLE CGL'];
-const SUB = Array(20).fill('').concat(['PERCAYA YESUS', 'BAPTIS SELAM', 'BAPTIS RK', 'RUTIN CG', 'RUTIN IBADAH', 'MSJ 1', 'MSJ 2', 'MSJ 3', 'CGT 1', 'CGT 2', 'CGT 3'], Array(12).fill(''));
+const HEADER = ['', 'NO CG', 'NAMA', 'STATUS CG', 'WAKTU CG', 'DAERAH CG', 'DOMISILI (KECAMATAN)', 'EMAIL', 'NO HP', 'CGL', 'GENDER', 'NIJ', 'POSISI', 'STATUS', 'KOTA KELAHIRAN', 'TTL', 'ALAMAT', 'NO HP', 'KERJA/KULIAH', 'KAMPUS', '5M', '', '', '', '', 'MSJ', '', '', 'CGT', '', '', 'PELAYANAN', 'TARGET JD MEMBER', 'TGL JD MEMBER', 'TARGET JD SPONSOR', 'TGL JD SPONSOR', 'TARGET CGL', 'TARGET JD COACH', 'KETERANGAN', 'AGE', 'ELIGIBLE TL', 'ELIGIBLE COACH', 'ELIGIBLE CGL',
+  'TGL JD CGL', 'TGL JD COACH', 'TARGET JD TEAM LEADER', 'TGL JD TEAM LEADER'];
+const SUB = Array(20).fill('').concat(['PERCAYA YESUS', 'BAPTIS SELAM', 'BAPTIS RK', 'RUTIN CG', 'RUTIN IBADAH', 'MSJ 1', 'MSJ 2', 'MSJ 3', 'CGT 1', 'CGT 2', 'CGT 3'], Array(16).fill(''));
 
 function demoValues() {
   let seed = 7;
@@ -104,9 +105,11 @@ function main() {
     ${read('Code.gs')}
     ${read('Auth.gs')}
     ${read('Meetings.gs')}
+    ${read('Ldp.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
-      getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting };
+      getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
+      getLdpProgress: getLdpProgress, saveLdp: saveLdp };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

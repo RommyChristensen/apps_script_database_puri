@@ -36,6 +36,14 @@
     save: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   };
+  /** LDP steps; same keys as LDP_STEPS in Ldp.gs. */
+  var LDP_STEPS = [
+    { key: 'member', label: 'Member', target: 'targetMember', date: 'dateMember' },
+    { key: 'sponsor', label: 'Sponsor', target: 'targetSponsor', date: 'dateSponsor' },
+    { key: 'cgl', label: 'CGL', target: 'targetCgl', date: 'dateCgl' },
+    { key: 'coach', label: 'Coach', target: 'targetCoach', date: 'dateCoach' },
+    { key: 'tl', label: 'Team Leader', target: 'targetTl', date: 'dateTl' },
+  ];
   var POSITION_LABEL = { VIP: 'VIP', SIMPATISAN: 'Simpatisan', MEMBER: 'Member', SPONSOR: 'Sponsor', CGL: 'CGL' };
 
   var state = {
@@ -164,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -188,7 +196,7 @@
       '</span><br><br><span class="small muted">Coba refresh. Kalau masih gagal, hubungi team leader.</span></div>';
   }
 
-  function onData(data, isRefresh) {
+  function onData(data, isRefresh, quiet) {
     $('#refreshBtn').classList.remove('spinning');
     state.data = data;
     state.people = data.people;
@@ -206,7 +214,8 @@
     renderCoaches();
     renderComposition();
     renderGaps();
-    if (window.AOGMeetings) window.AOGMeetings.onDashboard();
+    if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
+    if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
     var when = new Date(data.generatedAt);
     $('#foot').textContent = 'Sumber: tab "' + data.sheetName + '" · diperbarui ' +
       when.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
@@ -749,7 +758,7 @@
       control = '<textarea id="' + id + '" rows="' + (f.key === 'notes' ? 3 : 2) + '" maxlength="' + max + '" data-field="' + f.key + '" placeholder="' + esc(f.placeholder || PLACEHOLDER.textarea) + '"' + (locked ? ' disabled' : '') + '>' + esc(val) + '</textarea>';
     } else if (f.type === 'date' && (!val || parseLooseDate(val))) {
       var dt = val ? parseLooseDate(val) : null;
-      control = '<input id="' + id + '" type="date" data-field="' + f.key + '" data-kind="date" value="' + (dt ? toIso(dt) : '') + '" max="' + toIso(new Date()) + '">' +
+      control = '<input id="' + id + '" type="date" data-field="' + f.key + '" data-kind="date" value="' + (dt ? toIso(dt) : '') + '"' + (f.future ? '' : ' max="' + toIso(new Date()) + '"') + '>' +
         (val ? '<div class="hint soft">Di sheet: ' + esc(val) + '</div>' : '');
     } else {
       var type = f.type === 'email' ? 'email' : f.type === 'tel' ? 'tel' : 'text';
@@ -823,6 +832,7 @@
     var editing = !!(state.edit && state.edit.id === p.id);
     var actions = [];
     if (!p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
+    if (!p.isCoach && window.AOGLdp) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
     if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
     if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
@@ -857,13 +867,11 @@
     }).join('') + '<div class="info wide"><label>Alamat</label><div>' + esc(p.address || '—') + '</div></div>';
 
     // Timeline
-    var rank = { VIP: 0, SIMPATISAN: 0, MEMBER: 1, SPONSOR: 2, CGL: 3, COACH: 4 }[p.position] || 0;
-    var tl = [
-      { t: 'Member', done: rank >= 1 || !!p.dateMember, sub: [p.dateMember && 'Jadi member ' + p.dateMember, p.targetMember && 'Target ' + p.targetMember] },
-      { t: 'Sponsor', done: rank >= 2 || !!p.dateSponsor, sub: [p.dateSponsor && 'Jadi sponsor ' + p.dateSponsor, p.targetSponsor && 'Target ' + p.targetSponsor] },
-      { t: 'CGL', done: rank >= 3, sub: [p.targetCgl && 'Target ' + p.targetCgl] },
-      { t: 'Coach', done: rank >= 4, sub: [p.targetCoach && 'Target ' + p.targetCoach] },
-    ].map(function (x) {
+    var rank = { VIP: 0, SIMPATISAN: 0, MEMBER: 1, SPONSOR: 2, CGL: 3, COACH: 4, 'TEAM LEADER': 5 }[p.position] || 0;
+    var tl = LDP_STEPS.map(function (st, i) {
+      var date = p[st.date], target = p[st.target];
+      return { t: st.label, done: rank >= i + 1 || !!date, sub: [date && 'Tercapai ' + date, !date && target && 'Target ' + target] };
+    }).map(function (x) {
       var sub = x.sub.filter(Boolean).join(' · ') || (x.done ? 'Selesai' : 'Belum ada target');
       return '<div class="tl-item' + (x.done ? ' done' : '') + '"><div class="tl-dot"></div><div><div class="tl-title">' + x.t + '</div><div class="tl-sub">' + esc(sub) + '</div></div></div>';
     }).join('');
@@ -955,6 +963,7 @@
     $('#searchInput').value = '';
     $('#coachGrid').innerHTML = '';
     if (window.AOGMeetings) window.AOGMeetings.reset();
+    if (window.AOGLdp) window.AOGLdp.reset();
     showLogin(message);
   }
 
@@ -1069,7 +1078,10 @@
   /** Shared with MeetingsUi.html. */
   window.AOG = {
     $: $, $$: $$, esc: esc, initials: initials, api: api, state: state, toast: toast, ICON: ICON,
-    posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson,
+    posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson, posBadge: posBadge,
+    parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
+    /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */
+    applyData: function (data) { onData(data, false, true); },
     /** Re-render the open person modal (e.g. after a meeting was saved). */
     refreshPerson: function () {
       var head = $('#modal [data-pid]');

@@ -61,8 +61,13 @@
         </button>
         <button class="nav-item" data-view="meetings">
           <svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h3M8 17h6"/></svg>
-          <span>Meeting</span>
+          <span>Pertemuan</span>
           <span class="nav-badge" id="navBadge" hidden></span>
+        </button>
+        <button class="nav-item" data-view="ldp">
+          <svg class="i" viewBox="0 0 24 24"><path d="M4 20h4v-6H4zM10 20h4V9h-4zM16 20h4V4h-4z"/></svg>
+          <span>LDP</span>
+          <span class="nav-badge" id="ldpBadge" hidden></span>
         </button>
       </nav>
 
@@ -142,12 +147,12 @@
     <main id="meetingsView" class="meetings-view" hidden>
       <section class="mt-head">
         <div>
-          <div class="eyebrow-soft">Menu · Meeting</div>
-          <h1 class="page-title">Meeting Log</h1>
+          <div class="eyebrow-soft">Menu · Pertemuan</div>
+          <h1 class="page-title">Log Pertemuan</h1>
           <p class="muted page-sub">Catat setiap pertemuan dengan CGL dan jemaat, lengkap dengan tujuan dan action list.</p>
         </div>
         <button class="btn primary" id="newMeetingBtn">
-          <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Meeting baru
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Pertemuan baru
         </button>
       </section>
       <div class="mt-stats" id="mtStats"></div>
@@ -163,6 +168,30 @@
         </div>
       </div>
       <div id="mtList" class="mt-list"></div>
+    </main>
+
+    <!-- LDP -->
+    <main id="ldpView" class="meetings-view ldp-view" hidden>
+      <section class="mt-head">
+        <div>
+          <div class="eyebrow-soft">Menu · LDP</div>
+          <h1 class="page-title">Leaders Development Program</h1>
+          <p class="muted page-sub">Target dan realisasi tiap orang dari Member sampai Team Leader. Update hasilnya setiap bulan.</p>
+        </div>
+      </section>
+      <div class="mt-stats" id="ldpStats"></div>
+      <div class="mt-filters panel">
+        <div class="chips" id="ldpStatusChips"></div>
+        <div class="mt-filter-row">
+          <div class="mt-search">
+            <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="ldpSearch" type="search" placeholder="Cari nama, CG…" autocomplete="off">
+          </div>
+          <select id="ldpStep" aria-label="Tahap"></select>
+          <select id="ldpCoach" aria-label="Coach" hidden></select>
+        </div>
+      </div>
+      <div id="ldpList" class="ldp-list"></div>
     </main>
 
     <!-- Drawer -->
@@ -183,9 +212,16 @@
       <div class="modal mt-modal" role="dialog" aria-modal="true" id="mtModal"></div>
     </div>
 
+    <!-- LDP update -->
+    <div class="modal-wrap mt-wrap" id="ldpModalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-ldp-close></div>
+      <div class="modal mt-modal" role="dialog" aria-modal="true" id="ldpModal"></div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <?!= include('JavaScript'); ?>
     <?!= include('MeetingsUi'); ?>
+    <?!= include('LdpUi'); ?>
   </body>
 </html>

@@ -17,6 +17,8 @@
     cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   };
   var VIEW_KEY = 'aogpuri.view';
+  /** Menu items → the <main> they show. */
+  var VIEWS = { dashboard: '#app', meetings: '#meetingsView', ldp: '#ldpView' };
 
   var M = {
     meetings: [], categories: [], loaded: false, loading: false,
@@ -78,7 +80,7 @@
     }, function (err) {
       M.loading = false;
       if (err.isAuth) return;
-      $('#mtList').innerHTML = '<div class="error-card">Meeting tidak bisa dimuat.<br><span class="small">' + esc(A.errText(err)) + '</span></div>';
+      $('#mtList').innerHTML = '<div class="error-card">Pertemuan tidak bisa dimuat.<br><span class="small">' + esc(A.errText(err)) + '</span></div>';
     });
   }
 
@@ -138,7 +140,7 @@
       if (st === 'overdue') counts.overdue++;
       if (st === 'done') counts.done++;
     });
-    $('#mtStatusChips').innerHTML = [['open', 'Ada tugas terbuka'], ['overdue', 'Terlambat'], ['done', 'Semua tugas selesai'], ['all', 'Semua meeting']]
+    $('#mtStatusChips').innerHTML = [['open', 'Ada tugas terbuka'], ['overdue', 'Terlambat'], ['done', 'Semua tugas selesai'], ['all', 'Semua pertemuan']]
       .map(function (s) {
         return '<button class="chip' + (M.filter.status === s[0] ? ' active' : '') + (s[0] === 'overdue' && counts.overdue ? ' is-warn' : '') +
           '" data-mt-status="' + s[0] + '">' + s[1] + '<span class="count">' + counts[s[0]] + '</span></button>';
@@ -167,7 +169,7 @@
       });
     });
     var stats = [
-      { n: thisMonth, label: 'Meeting bulan ini', cls: '' },
+      { n: thisMonth, label: 'Pertemuan bulan ini', cls: '' },
       { n: open, label: 'Tugas terbuka', cls: '' },
       { n: overdue, label: 'Tugas terlambat', cls: overdue ? 'is-warn' : '' },
       { n: total ? Math.round(done / total * 100) + '%' : '–', label: 'Tugas selesai', cls: 'is-ok' },
@@ -187,8 +189,8 @@
     var list = filtered();
     if (!list.length) {
       box.innerHTML = '<div class="mt-empty">' + IC.cal + '<b>' +
-        (M.meetings.length ? 'Tidak ada meeting yang cocok dengan filter ini.' : 'Belum ada meeting yang dicatat.') +
-        '</b><span>' + (M.meetings.length ? 'Coba ubah filter di atas.' : 'Klik "Meeting baru" untuk mencatat pertemuan pertama.') + '</span></div>';
+        (M.meetings.length ? 'Tidak ada pertemuan yang cocok dengan filter ini.' : 'Belum ada pertemuan yang dicatat.') +
+        '</b><span>' + (M.meetings.length ? 'Coba ubah filter di atas.' : 'Klik "Pertemuan baru" untuk mencatat pertemuan pertama.') + '</span></div>';
       return;
     }
     var html = '', lastMonth = '';
@@ -252,10 +254,10 @@
 
   function remove(id) {
     var m = M.meetings.filter(function (x) { return x.id === id; })[0];
-    if (!m || !window.confirm('Hapus meeting ' + fmt(m.date) + ' dengan ' + m.people.join(', ') + '?')) return;
+    if (!m || !window.confirm('Hapus pertemuan ' + fmt(m.date) + ' dengan ' + m.people.join(', ') + '?')) return;
     A.api('deleteMeeting', id).then(function (res) {
       setMeetings(res);
-      A.toast('Meeting dihapus');
+      A.toast('Pertemuan dihapus');
     }, function (err) { if (!err.isAuth) A.toast('Gagal menghapus: ' + A.errText(err), true); });
   }
 
@@ -298,10 +300,10 @@
 
   function formErrors() {
     var f = M.form, e = {};
-    if (!f.date) e.date = 'Isi tanggal meeting';
+    if (!f.date) e.date = 'Isi tanggal pertemuan';
     if (!f.people.length) e.people = 'Pilih minimal satu orang';
     if (!f.category) e.category = 'Pilih kategori';
-    if (f.purpose.trim().length < 3) e.purpose = 'Tulis tujuan meeting';
+    if (f.purpose.trim().length < 3) e.purpose = 'Tulis tujuan pertemuan';
     return e;
   }
 
@@ -327,8 +329,8 @@
     $('#mtModal').innerHTML =
       '<div class="m-head mt-form-head"><div class="m-head-row">' +
       '<div class="avatar lg">' + IC.cal + '</div>' +
-      '<div style="flex:1;min-width:0"><div class="m-name">' + (f.id ? 'Edit meeting' : 'Meeting baru') + '</div>' +
-      '<div class="m-sub">Setiap meeting punya tujuan dan action list yang jelas.</div></div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + (f.id ? 'Edit pertemuan' : 'Pertemuan baru') + '</div>' +
+      '<div class="m-sub">Setiap pertemuan punya tujuan dan action list yang jelas.</div></div>' +
       '<button class="close-btn dark" data-mt-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
       '<div class="m-body mt-form">' +
       '<div class="form-grid">' +
@@ -340,13 +342,13 @@
       '<input id="mtPick" placeholder="' + (f.people.length ? 'Tambah orang…' : 'Cari nama CGL / jemaat…') + '" autocomplete="off" value="' + esc(f.pick) + '"></div>' +
       '<div class="pick-list" id="mtPickList"></div></div><div class="err"></div></div>' +
       '<div class="field wide" data-err="category"><label>Kategori tujuan</label><div class="chips seg tight">' + cats + '</div><div class="err"></div></div>' +
-      '<div class="field wide" data-err="purpose"><label for="mtPurpose">Kenapa meeting ini diadakan?</label>' +
+      '<div class="field wide" data-err="purpose"><label for="mtPurpose">Kenapa pertemuan ini diadakan?</label>' +
       '<textarea id="mtPurpose" rows="3" maxlength="1000" placeholder="mis. Persiapan naik jadi sponsor, membahas jadwal MSJ 3…">' + esc(f.purpose) + '</textarea><div class="err"></div></div>' +
       '<div class="field wide"><label>To do / action list</label><div class="task-edit" id="mtTasks">' + taskRows() + '</div>' +
       '<button type="button" class="link-btn add-task" data-add-task>' + IC.plus + 'Tambah tugas</button></div>' +
       '</div>' +
       '<div class="m-footer"><button type="button" class="btn" data-mt-close>Batal</button>' +
-      '<button type="button" class="btn primary" id="mtSave"><span class="spin"></span>' + IC.check + '<span id="mtSaveLabel">Simpan meeting</span></button></div>';
+      '<button type="button" class="btn primary" id="mtSave"><span class="spin"></span>' + IC.check + '<span id="mtSaveLabel">Simpan pertemuan</span></button></div>';
     renderPickList();
     updateFormUi(false);
   }
@@ -394,7 +396,7 @@
     var f = M.form;
     $('#mtSave').disabled = f.saving;
     $('#mtSave').classList.toggle('loading', f.saving);
-    $('#mtSaveLabel').textContent = f.saving ? 'Menyimpan…' : 'Simpan meeting';
+    $('#mtSaveLabel').textContent = f.saving ? 'Menyimpan…' : 'Simpan pertemuan';
   }
 
   function save() {
@@ -407,7 +409,7 @@
       f.saving = false;
       closeForm(true);
       setMeetings(res);
-      A.toast(f.id ? 'Meeting diperbarui ✨' : 'Meeting tercatat ✨');
+      A.toast(f.id ? 'Pertemuan diperbarui ✨' : 'Pertemuan tercatat ✨');
     }, function (err) {
       f.saving = false;
       if (err.isAuth) return;
@@ -429,16 +431,16 @@
         '<span class="pm-main"><b>' + esc(m.category) + '</b><span>' + esc(m.purpose) + '</span></span>' +
         (m.tasks.length ? '<span class="badge ' + (m.tasks.some(isOverdue) ? 'is-warn' : 'line') + '">' + done + '/' + m.tasks.length + '</span>' : '') + '</button>';
     }).join('');
-    return '<div class="m-section"><h4>Meeting' + (list.length ? ' <span class="h4-hint">' + list.length + ' tercatat' + (open ? ' · ' + open + ' tugas terbuka' : '') + '</span>' : '') +
-      '<button type="button" class="link-btn h4-action" data-new-meeting-for="' + p.id + '">' + IC.plus + 'Catat meeting</button></h4>' +
-      (!M.loaded ? '<div class="muted small">Memuat…</div>' : items || '<div class="muted small">Belum ada meeting dengan ' + esc(p.name.split(' ')[0]) + '.</div>') +
-      (list.length > 4 ? '<button class="link-btn" data-mt-show="' + esc(p.name) + '">Lihat semua ' + list.length + ' meeting</button>' : '') +
+    return '<div class="m-section"><h4>Pertemuan' + (list.length ? ' <span class="h4-hint">' + list.length + ' tercatat' + (open ? ' · ' + open + ' tugas terbuka' : '') + '</span>' : '') +
+      '<button type="button" class="link-btn h4-action" data-new-meeting-for="' + p.id + '">' + IC.plus + 'Catat pertemuan</button></h4>' +
+      (!M.loaded ? '<div class="muted small">Memuat…</div>' : items || '<div class="muted small">Belum ada pertemuan dengan ' + esc(p.name.split(' ')[0]) + '.</div>') +
+      (list.length > 4 ? '<button class="link-btn" data-mt-show="' + esc(p.name) + '">Lihat semua ' + list.length + ' pertemuan</button>' : '') +
       '</div>';
   }
 
   // ───────────── views (menu) ─────────────
   function setView(view, opts) {
-    view = view === 'meetings' ? 'meetings' : 'dashboard';
+    if (!VIEWS[view]) view = 'dashboard';
     M.view = view;
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* ignore */ }
     $$('#mainNav .nav-item').forEach(function (b) {
@@ -446,15 +448,14 @@
       b.classList.toggle('active', on);
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    var show = view === 'meetings' ? $('#meetingsView') : $('#app');
-    var hide = view === 'meetings' ? $('#app') : $('#meetingsView');
-    hide.hidden = true;
-    show.hidden = false;
+    var show = $(VIEWS[view]);
+    Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).hidden = k !== view; });
     show.classList.remove('view-enter');
     void show.offsetWidth;
     show.classList.add('view-enter');
     if (!(opts && opts.keepScroll)) window.scrollTo(0, 0);
     if (view === 'meetings' && !M.loaded) load();
+    if (view === 'ldp' && window.AOGLdp) window.AOGLdp.onShow();
   }
 
   // ───────────── events ─────────────
@@ -577,6 +578,7 @@
       $('#mtList').innerHTML = '';
     },
     personSection: personSection,
+    setView: setView,
   };
 })();
 </script>

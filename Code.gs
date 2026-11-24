@@ -20,7 +20,9 @@ const CONFIG = {
   // Usernames and passwords for the coaches (see Auth.gs).
   AUTH_SHEET_NAME: 'Authentication',
   // Meetings logged by coaches (see Meetings.gs). Created automatically if missing.
-  MEETING_SHEET_NAME: 'Meeting Log',
+  MEETING_SHEET_NAME: 'Log Pertemuan',
+  // Monthly LDP (Leaders Development Program) updates (see Ldp.gs). Created automatically if missing.
+  LDP_SHEET_NAME: 'LDP Progress',
   TIME_ZONE: 'Asia/Jakarta',
 };
 
@@ -33,12 +35,17 @@ const POSITION_OPTIONS = ['VIP', 'SIMPATISAN', 'MEMBER', 'SPONSOR', 'CGL'];
  *   type:    text | month | date | choice | email | tel | digits | suggest | textarea
  */
 const EDITABLE_FIELDS = [
-  { key: 'targetMember', label: 'Target jadi Member', section: 'jenjang', type: 'month' },
-  { key: 'dateMember', label: 'Tgl jadi Member', section: 'jenjang', type: 'month', fillNow: true },
-  { key: 'targetSponsor', label: 'Target jadi Sponsor', section: 'jenjang', type: 'month' },
-  { key: 'dateSponsor', label: 'Tgl jadi Sponsor', section: 'jenjang', type: 'month', fillNow: true },
-  { key: 'targetCgl', label: 'Target CGL', section: 'jenjang', type: 'month' },
-  { key: 'targetCoach', label: 'Target jadi Coach', section: 'jenjang', type: 'month' },
+  // LDP: "Target" = planned date, "Tgl" = when it actually happened (see LDP_STEPS in Ldp.gs).
+  { key: 'targetMember', label: 'Target jadi Member', section: 'jenjang', type: 'date', future: true },
+  { key: 'dateMember', label: 'Tgl jadi Member', section: 'jenjang', type: 'date' },
+  { key: 'targetSponsor', label: 'Target jadi Sponsor', section: 'jenjang', type: 'date', future: true },
+  { key: 'dateSponsor', label: 'Tgl jadi Sponsor', section: 'jenjang', type: 'date' },
+  { key: 'targetCgl', label: 'Target jadi CGL', section: 'jenjang', type: 'date', future: true },
+  { key: 'dateCgl', label: 'Tgl jadi CGL', section: 'jenjang', type: 'date' },
+  { key: 'targetCoach', label: 'Target jadi Coach', section: 'jenjang', type: 'date', future: true },
+  { key: 'dateCoach', label: 'Tgl jadi Coach', section: 'jenjang', type: 'date' },
+  { key: 'targetTl', label: 'Target jadi Team Leader', section: 'jenjang', type: 'date', future: true },
+  { key: 'dateTl', label: 'Tgl jadi Team Leader', section: 'jenjang', type: 'date' },
   { key: 'notes', label: 'Catatan / Keterangan', section: 'jenjang', type: 'textarea', maxLength: 500,
     placeholder: 'Catatan pembinaan, pergumulan, rencana follow up…' },
 
@@ -110,8 +117,12 @@ const FIELDS = {
   dateMember: ['TGL JD MEMBER'],
   targetSponsor: ['TARGET JD SPONSOR'],
   dateSponsor: ['TGL JD SPONSOR'],
-  targetCgl: ['TARGET CGL'],
+  targetCgl: ['TARGET JD CGL', 'TARGET CGL'],
+  dateCgl: ['TGL JD CGL'],
   targetCoach: ['TARGET JD COACH'],
+  dateCoach: ['TGL JD COACH'],
+  targetTl: ['TARGET JD TEAM LEADER', 'TARGET JD TL'],
+  dateTl: ['TGL JD TEAM LEADER', 'TGL JD TL'],
   notes: ['KETERANGAN', 'NOTES'],
   age: ['AGE', 'UMUR'],
   eligibleTl: ['ELIGIBLE TL'],
@@ -203,98 +214,107 @@ function buildDashboard_(ss, session) {
 function updatePerson(token, payload) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
-  if (!payload || !payload.id || !payload.name) throw new Error('Data edit tidak valid.');
+  return withScriptLock_(function () {
+    const res = applyPersonUpdate_(ss, session, payload);
+    return { changes: res.changes, data: buildDashboard_(ss, session) };
+  });
+}
 
+function withScriptLock_(fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Sedang ada yang menyimpan. Coba lagi sebentar.');
-  try {
-    const sheet = getDatabaseSheet_(ss);
-    const lastRow = sheet.getLastRow();
-    const lastCol = sheet.getLastColumn();
-    const all = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
-    const map = mapColumns_(all);
-    const col = map.col;
+  try { return fn(); } finally { lock.releaseLock(); }
+}
 
-    const row = Math.floor(Number(payload.id));
-    const firstDataRow = map.headerRow + (map.hasSub ? 2 : 1) + 1; // 1-based
-    if (!(row >= firstDataRow && row <= lastRow)) throw new Error('Baris ' + row + ' di luar area data.');
+/**
+ * Validates and writes one person's changes (caller holds the script lock).
+ * Returns { changes: [{label, from, to}], person } — person is the row as parsed before the write.
+ */
+function applyPersonUpdate_(ss, session, payload) {
+  if (!payload || !payload.id || !payload.name) throw new Error('Data edit tidak valid.');
+  const sheet = getDatabaseSheet_(ss);
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  const all = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+  const map = mapColumns_(all);
+  const col = map.col;
 
-    const range = sheet.getRange(row, 1, 1, lastCol);
-    const display = range.getDisplayValues()[0];
-    const raw = range.getValues()[0];
-    const formulas = range.getFormulas()[0];
+  const row = Math.floor(Number(payload.id));
+  const firstDataRow = map.headerRow + (map.hasSub ? 2 : 1) + 1; // 1-based
+  if (!(row >= firstDataRow && row <= lastRow)) throw new Error('Baris ' + row + ' di luar area data.');
 
-    // Guard against rows that moved since the dashboard was loaded.
-    if (norm_(display[col.name]) !== norm_(payload.name)) {
-      throw new Error('Data di baris ' + row + ' sudah berubah (nama tidak cocok). Refresh dulu lalu coba lagi.');
-    }
+  const range = sheet.getRange(row, 1, 1, lastCol);
+  const display = range.getDisplayValues()[0];
+  const raw = range.getValues()[0];
+  const formulas = range.getFormulas()[0];
 
-    // A coach may only edit people in their own group (checked against the sheet, not the browser).
-    const target = parseDatabase_(all).people.filter(function (p) { return p.id === row; })[0];
-    if (!target || !canAccessCoach_(session, target.coach) || (target.isCoach && session.role !== 'ADMIN')) {
-      throw new Error('Kamu tidak punya akses untuk mengubah data ini.');
-    }
-
-    const changes = [];
-    const queue = function (j, value, label, from, to, asText) {
-      if (formulas[j]) throw new Error('Kolom "' + label + '" berisi formula, tidak bisa diedit dari dashboard.');
-      changes.push({ col: j, value: value, label: label, from: from, to: to, asText: asText });
-    };
-
-    // 5M / MSJ / CGT
-    const ms = payload.milestones || {};
-    MILESTONES.forEach(function (m) {
-      if (!Object.prototype.hasOwnProperty.call(ms, m.key) || col[m.key] === undefined) return;
-      const j = col[m.key];
-      const want = ms[m.key] === true;
-      const had = isChecked_(display[j]);
-      if (want === had) return;
-      // Keep the cell's style: real checkboxes stay booleans, text cells use ✔ / -.
-      const value = typeof raw[j] === 'boolean' ? want : (want ? '✔' : '-');
-      queue(j, value, m.label, had ? '✔' : '✗', want ? '✔' : '✗', false);
-    });
-
-    // POSISI
-    if (Object.prototype.hasOwnProperty.call(payload, 'position') && col.position !== undefined) {
-      const want = String(payload.position || '').trim().toUpperCase();
-      if (want && POSITION_OPTIONS.indexOf(want) < 0) throw new Error('Posisi "' + want + '" tidak dikenal.');
-      const had = clean_(display[col.position]).toUpperCase();
-      if (want && want !== had) queue(col.position, want, 'Posisi', had, want, true);
-    }
-
-    // Jenjang + personal data fields (all validated before anything is written)
-    const notesInTargetCoach = col.targetCoach !== undefined &&
-      targetCoachHoldsNotes_(col.notes === undefined ? '' : clean_(display[col.notes]), clean_(display[col.targetCoach]));
-    EDITABLE_FIELDS.forEach(function (f) {
-      if (!Object.prototype.hasOwnProperty.call(payload, f.key) || col[f.key] === undefined) return;
-      if ((f.key === 'targetCoach' || f.key === 'notes') && notesInTargetCoach) {
-        if (f.key === 'targetCoach' && !String(payload.targetCoach || '').trim()) return; // never wipe the misplaced notes
-        throw new Error('Kolom TARGET JD COACH di baris ini masih berisi catatan. Rapikan header di sheet dulu.');
-      }
-      const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, f.maxLength || 100);
-      const had = clean_(display[col[f.key]]);
-      if (want === had) return;
-      validateField_(f, want);
-      queue(col[f.key], want, f.label, had, want, true);
-    });
-
-    changes.forEach(function (c) {
-      const cell = sheet.getRange(row, c.col + 1);
-      // Store as plain text so "Juni 2026" isn't turned into a date and phone numbers keep their leading 0.
-      if (c.asText && c.value !== '') cell.setNumberFormat('@');
-      cell.setValue(c.value);
-    });
-    SpreadsheetApp.flush();
-
-    if (changes.length) logEdit_(ss, row, display[col.name], changes, session);
-
-    return {
-      changes: changes.map(function (c) { return { label: c.label, from: c.from, to: c.to }; }),
-      data: buildDashboard_(ss, session),
-    };
-  } finally {
-    lock.releaseLock();
+  // Guard against rows that moved since the dashboard was loaded.
+  if (norm_(display[col.name]) !== norm_(payload.name)) {
+    throw new Error('Data di baris ' + row + ' sudah berubah (nama tidak cocok). Refresh dulu lalu coba lagi.');
   }
+
+  // A coach may only edit people in their own group (checked against the sheet, not the browser).
+  const target = parseDatabase_(all).people.filter(function (p) { return p.id === row; })[0];
+  if (!target || !canAccessCoach_(session, target.coach) || (target.isCoach && session.role !== 'ADMIN')) {
+    throw new Error('Kamu tidak punya akses untuk mengubah data ini.');
+  }
+
+  const changes = [];
+  const queue = function (j, value, label, from, to, asText) {
+    if (formulas[j]) throw new Error('Kolom "' + label + '" berisi formula, tidak bisa diedit dari dashboard.');
+    changes.push({ col: j, value: value, label: label, from: from, to: to, asText: asText });
+  };
+
+  // 5M / MSJ / CGT
+  const ms = payload.milestones || {};
+  MILESTONES.forEach(function (m) {
+    if (!Object.prototype.hasOwnProperty.call(ms, m.key) || col[m.key] === undefined) return;
+    const j = col[m.key];
+    const want = ms[m.key] === true;
+    const had = isChecked_(display[j]);
+    if (want === had) return;
+    // Keep the cell's style: real checkboxes stay booleans, text cells use ✔ / -.
+    const value = typeof raw[j] === 'boolean' ? want : (want ? '✔' : '-');
+    queue(j, value, m.label, had ? '✔' : '✗', want ? '✔' : '✗', false);
+  });
+
+  // POSISI
+  if (Object.prototype.hasOwnProperty.call(payload, 'position') && col.position !== undefined) {
+    const want = String(payload.position || '').trim().toUpperCase();
+    if (want && POSITION_OPTIONS.indexOf(want) < 0) throw new Error('Posisi "' + want + '" tidak dikenal.');
+    const had = clean_(display[col.position]).toUpperCase();
+    if (want && want !== had) queue(col.position, want, 'Posisi', had, want, true);
+  }
+
+  // Jenjang + personal data fields (all validated before anything is written)
+  const notesInTargetCoach = col.targetCoach !== undefined &&
+    targetCoachHoldsNotes_(col.notes === undefined ? '' : clean_(display[col.notes]), clean_(display[col.targetCoach]));
+  EDITABLE_FIELDS.forEach(function (f) {
+    if (!Object.prototype.hasOwnProperty.call(payload, f.key) || col[f.key] === undefined) return;
+    if ((f.key === 'targetCoach' || f.key === 'notes') && notesInTargetCoach) {
+      if (f.key === 'targetCoach' && !String(payload.targetCoach || '').trim()) return; // never wipe the misplaced notes
+      throw new Error('Kolom TARGET JD COACH di baris ini masih berisi catatan. Rapikan header di sheet dulu.');
+    }
+    const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, f.maxLength || 100);
+    const had = clean_(display[col[f.key]]);
+    if (want === had) return;
+    validateField_(f, want);
+    queue(col[f.key], want, f.label, had, want, true);
+  });
+
+  changes.forEach(function (c) {
+    const cell = sheet.getRange(row, c.col + 1);
+    // Store as plain text so "Juni 2026" isn't turned into a date and phone numbers keep their leading 0.
+    if (c.asText && c.value !== '') cell.setNumberFormat('@');
+    cell.setValue(c.value);
+  });
+  SpreadsheetApp.flush();
+
+  if (changes.length) logEdit_(ss, row, display[col.name], changes, session);
+  return {
+    changes: changes.map(function (c) { return { label: c.label, from: c.from, to: c.to }; }),
+    person: target,
+  };
 }
 
 function logEdit_(ss, row, name, changes, session) {
@@ -467,7 +487,11 @@ function parseDatabase_(values) {
       targetSponsor: get(row, 'targetSponsor'),
       dateSponsor: get(row, 'dateSponsor'),
       targetCgl: get(row, 'targetCgl'),
+      dateCgl: get(row, 'dateCgl'),
       targetCoach: targetCoach,
+      dateCoach: get(row, 'dateCoach'),
+      targetTl: get(row, 'targetTl'),
+      dateTl: get(row, 'dateTl'),
       targetCoachHoldsNotes: targetCoachHoldsNotes,
       notes: notes,
       eligibleTl: get(row, 'eligibleTl'),

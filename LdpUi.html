@@ -1,0 +1,440 @@
+<script>
+/* LDP (Leaders Development Program) menu: every person's path
+   Member → Sponsor → CGL → Coach → Team Leader with target and realization
+   dates, and the monthly update (berhasil / belum + catatan).
+   Talks to Ldp.gs through AOG.api. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var STEPS = A.LDP_STEPS;
+  var RANK = { VIP: 0, SIMPATISAN: 0, MEMBER: 1, SPONSOR: 2, CGL: 3, COACH: 4, 'TEAM LEADER': 5 };
+
+  var IC = {
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    flag: '<svg class="i" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+    note: '<svg class="i" viewBox="0 0 24 24"><path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4M8 9h8M8 13h5"/></svg>',
+    chart: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4v-6H4zM10 20h4V9h-4zM16 20h4V4h-4z"/></svg>',
+    up: '<svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  };
+
+  var L = {
+    progress: [], loaded: false, loading: false,
+    filter: { status: 'needs', step: '', coach: '', q: '' },
+    form: null,
+  };
+
+  // ───────────── dates ─────────────
+  function todayIso() { return A.toIso(new Date()); }
+  function monthKey(iso) { return (iso || '').slice(0, 7); }
+  var MONTH_ONLY = /^([A-Za-z]+)\.?\s+(\d{4})$/;
+  var MONTH_IDX = { jan: 0, januari: 0, january: 0, feb: 1, februari: 1, february: 1, mar: 2, maret: 2, march: 2,
+    apr: 3, april: 3, mei: 4, may: 4, jun: 5, juni: 5, june: 5, jul: 6, juli: 6, july: 6, agu: 7, agt: 7, agustus: 7,
+    aug: 7, august: 7, sep: 8, sept: 8, september: 8, okt: 9, oktober: 9, oct: 9, october: 9, nov: 10, november: 10,
+    des: 11, desember: 11, dec: 11, december: 11 };
+  /**
+   * Cell text → Date. "15 June 2026" / "2026-06-15" exactly; older month-only
+   * values ("June 2025", "Nov / Des 2024") count as the end of that month,
+   * a bare year as 31 December.
+   */
+  function cellDate(text) {
+    text = String(text || '').trim();
+    if (!text) return null;
+    var d = A.parseLooseDate(text);
+    if (d) return d;
+    var m = MONTH_ONLY.exec(text.replace(/^.*\/\s*/, ''));
+    if (m && MONTH_IDX[m[1].toLowerCase()] !== undefined) return new Date(+m[2], MONTH_IDX[m[1].toLowerCase()] + 1, 0);
+    m = /^(\d{4})$/.exec(text);
+    return m ? new Date(+m[1], 11, 31) : null;
+  }
+  function exactIso(text) { var d = A.parseLooseDate(String(text || '').trim()); return d ? A.toIso(d) : ''; }
+  function fmt(d, opts) { return d ? d.toLocaleDateString('id-ID', opts || { day: 'numeric', month: 'short', year: 'numeric' }) : ''; }
+  function fmtIso(iso, opts) { var d = A.parseLooseDate(iso); return d ? fmt(d, opts) : (iso || ''); }
+  function daysUntil(d) {
+    var t = A.parseLooseDate(todayIso());
+    return Math.round((d - t) / 86400000);
+  }
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+  // ───────────── model ─────────────
+  function isAdmin() { return !!(A.state.data && A.state.data.user && A.state.data.user.isAdmin); }
+
+  function historyOf(p) {
+    return L.progress.filter(function (e) { return e.coach === p.coach && norm(e.name) === norm(p.name); });
+  }
+
+  /** Everything the list needs about one person's LDP. */
+  function info(p) {
+    var rank = RANK[p.position] || 0;
+    var steps = STEPS.map(function (st, i) {
+      return { step: st, achieved: !!p[st.date] || rank >= i + 1, date: p[st.date], target: p[st.target] };
+    });
+    var cur = steps.filter(function (s) { return !s.achieved; })[0] || null;
+    var hist = historyOf(p);
+    var thisMonth = monthKey(todayIso());
+    // Any LDP update this month counts (after "berhasil" the person is already on the next step).
+    var updated = hist.some(function (e) { return monthKey(e.date) === thisMonth; });
+    var targetDate = cur ? cellDate(cur.target) : null;
+    var status = !cur ? 'done' : !cur.target ? 'none' : !targetDate ? 'ok'
+      : daysUntil(targetDate) < 0 ? 'overdue' : daysUntil(targetDate) <= 30 ? 'soon' : 'ok';
+    return {
+      p: p, steps: steps, cur: cur, targetDate: targetDate, status: status, history: hist, last: hist[0] || null,
+      updated: !!updated, needsUpdate: !!(cur && cur.target && !updated),
+    };
+  }
+
+  function rows() {
+    return (A.state.people || []).filter(function (p) { return !p.isCoach; }).map(info);
+  }
+
+  function statusChip(x) {
+    if (x.status === 'done') return '<span class="ldp-chip ok">' + IC.check + 'Semua tahap tercapai</span>';
+    if (x.status === 'none') return '<span class="ldp-chip muted">Belum ada target</span>';
+    var d = x.targetDate ? daysUntil(x.targetDate) : null;
+    var when = x.targetDate ? fmt(x.targetDate) : esc(x.cur.target);
+    if (x.status === 'overdue') return '<span class="ldp-chip bad">' + IC.flag + 'Lewat ' + (-d) + ' hari · ' + when + '</span>';
+    if (x.status === 'soon') return '<span class="ldp-chip soon">' + IC.flag + (d === 0 ? 'Hari ini' : d + ' hari lagi') + ' · ' + when + '</span>';
+    return '<span class="ldp-chip">' + IC.flag + 'Target ' + when + '</span>';
+  }
+
+  // ───────────── data ─────────────
+  function load() {
+    if (L.loading || !A.state.token) return;
+    L.loading = true;
+    A.api('getLdpProgress').then(function (res) {
+      L.loading = false;
+      setProgress(res);
+    }, function (err) {
+      L.loading = false;
+      if (err.isAuth) return;
+      $('#ldpList').innerHTML = '<div class="error-card">LDP tidak bisa dimuat.<br><span class="small">' + esc(A.errText(err)) + '</span></div>';
+    });
+  }
+
+  function setProgress(res) {
+    L.progress = res.progress || [];
+    L.loaded = true;
+    renderAll();
+  }
+
+  function renderAll() {
+    if (!A.state.data) return;
+    var all = rows();
+    renderBadge(all);
+    renderFilters(all);
+    renderStats(all);
+    renderList(all);
+  }
+
+  function renderBadge(all) {
+    var n = all.filter(function (x) { return x.status === 'overdue'; }).length;
+    var b = $('#ldpBadge');
+    b.hidden = !n || !L.loaded;
+    b.textContent = n > 99 ? '99+' : String(n);
+    b.title = n + ' target terlewat';
+  }
+
+  function filtered(all) {
+    var f = L.filter, q = norm(f.q);
+    return all.filter(function (x) {
+      if (f.status === 'needs' && !x.needsUpdate) return false;
+      if (f.status === 'overdue' && x.status !== 'overdue') return false;
+      if (f.status === 'none' && x.status !== 'none') return false;
+      if (f.status === 'done' && !x.updated && x.status !== 'done') return false;
+      if (f.step && (!x.cur || x.cur.step.key !== f.step)) return false;
+      if (f.coach && x.p.coach !== f.coach) return false;
+      if (q && norm([x.p.name, x.p.cg, x.p.cgl].join(' ')).indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+
+  function renderFilters(all) {
+    var c = { needs: 0, overdue: 0, none: 0, done: 0, all: all.length };
+    all.forEach(function (x) {
+      if (x.needsUpdate) c.needs++;
+      if (x.status === 'overdue') c.overdue++;
+      if (x.status === 'none') c.none++;
+      if (x.updated || x.status === 'done') c.done++;
+    });
+    $('#ldpStatusChips').innerHTML = [['needs', 'Perlu update bulan ini'], ['overdue', 'Target terlewat'], ['none', 'Belum ada target'],
+      ['done', 'Sudah diupdate'], ['all', 'Semua']].map(function (s) {
+      return '<button class="chip' + (L.filter.status === s[0] ? ' active' : '') + (s[0] === 'overdue' && c.overdue ? ' is-warn' : '') +
+        '" data-ldp-status="' + s[0] + '">' + s[1] + '<span class="count">' + c[s[0]] + '</span></button>';
+    }).join('');
+    $('#ldpStep').innerHTML = '<option value="">Semua tahap</option>' + STEPS.map(function (s) {
+      return '<option value="' + s.key + '"' + (L.filter.step === s.key ? ' selected' : '') + '>Menuju ' + esc(s.label) + '</option>';
+    }).join('');
+    var coach = $('#ldpCoach');
+    coach.hidden = !isAdmin();
+    if (isAdmin()) {
+      coach.innerHTML = '<option value="">Semua coach</option>' + (A.state.coaches || []).map(function (c) {
+        return '<option value="' + esc(c.key) + '"' + (L.filter.coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
+      }).join('');
+    }
+  }
+
+  function renderStats(all) {
+    var month = monthKey(todayIso());
+    var dueThisMonth = all.filter(function (x) { return x.targetDate && monthKey(A.toIso(x.targetDate)) === month; }).length;
+    var achieved = L.progress.filter(function (e) { return e.result === 'berhasil' && monthKey(e.date) === month; }).length;
+    var needs = all.filter(function (x) { return x.needsUpdate; }).length;
+    var overdue = all.filter(function (x) { return x.status === 'overdue'; }).length;
+    var stats = [
+      { n: needs, label: 'Perlu update bulan ini', cls: needs ? '' : 'is-ok' },
+      { n: dueThisMonth, label: 'Target jatuh bulan ini', cls: '' },
+      { n: achieved, label: 'Naik jenjang bulan ini', cls: 'is-ok' },
+      { n: overdue, label: 'Target terlewat', cls: overdue ? 'is-warn' : '' },
+    ];
+    $('#ldpStats').innerHTML = stats.map(function (s, i) {
+      return '<div class="mt-stat ' + s.cls + '" style="animation-delay:' + i * 50 + 'ms"><b>' + (L.loaded || i === 1 ? s.n : '–') + '</b><span>' + s.label + '</span></div>';
+    }).join('');
+  }
+
+  function stepper(x) {
+    return '<ol class="stepper">' + x.steps.map(function (s) {
+      var state = s.achieved ? 'done' : (x.cur && s.step.key === x.cur.step.key ? 'current' : 'todo');
+      var title = s.step.label + (s.date ? ' · tercapai ' + s.date : s.target ? ' · target ' + s.target : '');
+      return '<li class="st ' + state + '" title="' + esc(title) + '"><span class="st-dot">' + (state === 'done' ? IC.check : '') + '</span>' +
+        '<span class="st-label">' + esc(s.step.label) + '</span></li>';
+    }).join('') + '</ol>';
+  }
+
+  function renderList(all) {
+    var box = $('#ldpList');
+    var list = filtered(all);
+    if (!L.loaded) {
+      box.innerHTML = '<div class="mt-card skeleton" style="height:110px"></div><div class="mt-card skeleton" style="height:110px"></div>';
+      return;
+    }
+    if (!list.length) {
+      var msg = L.filter.status === 'needs' ? 'Semua orang dengan target sudah diupdate bulan ini 🎉' : 'Tidak ada yang cocok dengan filter ini.';
+      box.innerHTML = '<div class="mt-empty">' + IC.chart + '<b>' + msg + '</b><span>Pilih filter "Semua" untuk melihat semua orang.</span></div>';
+      return;
+    }
+    box.innerHTML = list.map(function (x, i) {
+      var p = x.p;
+      var last = x.last
+        ? '<div class="ldp-last ' + x.last.result + '"><span class="ldp-last-head">' + esc(fmtIso(x.last.date, { day: 'numeric', month: 'short' })) + ' · ' +
+          esc(x.last.stepLabel) + ' · ' + (x.last.result === 'berhasil' ? 'Berhasil' : 'Belum') + '</span>' +
+          (x.last.note ? '<span class="ldp-last-note">' + esc(x.last.note) + '</span>' : '') + '</div>'
+        : '<div class="ldp-last none">Belum ada update</div>';
+      return '<article class="ldp-card st-' + x.status + '" style="animation-delay:' + Math.min(i, 14) * 30 + 'ms">' +
+        '<button class="ldp-who" data-person="' + p.id + '"><span class="avatar sm soft">' + esc(A.initials(p.name)) + '</span>' +
+        '<span class="pr-main"><span class="pr-name">' + esc(p.name) + '</span><span class="pr-sub">' +
+        esc([p.cg, isAdmin() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span>' + A.posBadge(p) + '</button>' +
+        '<div class="ldp-path">' + stepper(x) + '<div class="ldp-now">' +
+        (x.cur ? '<span class="ldp-next">Menuju <b>' + esc(x.cur.step.label) + '</b></span>' : '') + statusChip(x) +
+        (x.updated ? '<span class="ldp-chip ok">' + IC.check + 'Diupdate bulan ini</span>' : '') + '</div></div>' +
+        last +
+        '<button class="btn ldp-update' + (x.needsUpdate ? ' primary' : '') + '" data-ldp-open="' + p.id + '">' + IC.up + 'Update</button>' +
+        '</article>';
+    }).join('');
+  }
+
+  // ───────────── update form ─────────────
+  function openForm(p) {
+    var x = info(p);
+    var fields = {};
+    STEPS.forEach(function (st) {
+      fields[st.key] = {
+        target: exactIso(p[st.target]), targetRaw: p[st.target] || '',
+        date: exactIso(p[st.date]), dateRaw: p[st.date] || '',
+      };
+    });
+    L.form = {
+      p: p, x: x, fields: fields, saving: false,
+      original: JSON.parse(JSON.stringify(fields)),
+      result: '', achieved: todayIso(), note: '', newTarget: '',
+    };
+    renderForm();
+    $('#ldpModalWrap').classList.add('open');
+    $('#ldpModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+  }
+
+  function closeForm(force) {
+    if (!L.form || L.form.saving) return;
+    if (!force && hasChanges() && !window.confirm('Buang perubahan yang belum disimpan?')) return;
+    L.form = null;
+    $('#ldpModalWrap').classList.remove('open');
+    $('#ldpModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  /** Only fields the user actually changed are sent (older text values stay untouched). */
+  function payload() {
+    var f = L.form, targets = {}, dates = {};
+    STEPS.forEach(function (st) {
+      var now = f.fields[st.key], was = f.original[st.key];
+      if (now.target !== was.target) targets[st.key] = now.target;
+      if (now.date !== was.date) dates[st.key] = now.date;
+    });
+    var out = { id: f.p.id, name: f.p.name, targets: targets, dates: dates };
+    if (f.result && f.x.cur) {
+      out.progress = { step: f.x.cur.step.key, result: f.result, date: f.achieved, note: f.note.trim(), newTarget: f.newTarget };
+    }
+    return out;
+  }
+  function hasChanges() {
+    var p = payload();
+    return !!(p.progress || Object.keys(p.targets).length || Object.keys(p.dates).length);
+  }
+  function formError() {
+    var f = L.form;
+    if (f.result === 'berhasil' && !f.achieved) return 'Isi tanggal tercapai';
+    if (f.result === 'belum' && f.note.trim().length < 3) return 'Tulis catatan kenapa belum tercapai';
+    return '';
+  }
+
+  function dateInput(attr, value, raw, opts) {
+    var hint = !value && raw ? '<span class="hint soft">Di sheet: ' + esc(raw) + '</span>' : '';
+    return '<input type="date" ' + attr + ' value="' + esc(value) + '"' + (opts && opts.max ? ' max="' + todayIso() + '"' : '') + '>' + hint;
+  }
+
+  function renderForm() {
+    var f = L.form, p = f.p, x = f.x;
+    var monthly = x.cur
+      ? '<div class="m-section"><h4>Update bulan ini <span class="h4-hint">' + esc(fmt(new Date(), { month: 'long', year: 'numeric' })) + '</span></h4>' +
+        '<div class="ldp-focus"><div>Menuju <b>' + esc(x.cur.step.label) + '</b></div>' + statusChip(x) + '</div>' +
+        '<div class="chips seg tight ldp-result">' +
+        '<button type="button" class="chip' + (f.result === 'berhasil' ? ' active' : '') + '" data-ldp-result="berhasil">' + IC.check + 'Berhasil, sudah jadi ' + esc(x.cur.step.label) + '</button>' +
+        '<button type="button" class="chip' + (f.result === 'belum' ? ' active bad' : '') + '" data-ldp-result="belum">Belum tercapai</button></div>' +
+        (f.result === 'berhasil'
+          ? '<div class="form-grid ldp-sub"><div class="field"><label>Tanggal tercapai</label>' + dateInput('data-ldp-achieved', f.achieved, '', { max: true }) + '</div>' +
+            '<div class="field"><label>Catatan (opsional)</label><input data-ldp-note maxlength="1000" value="' + esc(f.note) + '" placeholder="mis. Sudah dilantik minggu ini"></div></div>' +
+            (x.cur.step.key === 'member' || x.cur.step.key === 'sponsor' || x.cur.step.key === 'cgl'
+              ? '<div class="hint soft">POSISI akan diubah menjadi ' + esc(x.cur.step.label.toUpperCase()) + '.</div>' : '')
+          : f.result === 'belum'
+            ? '<div class="field wide ldp-sub"><label>Catatan</label><textarea data-ldp-note rows="3" maxlength="1000" placeholder="Apa yang belum, dan apa langkah berikutnya?">' + esc(f.note) + '</textarea></div>' +
+              '<div class="field ldp-sub"><label>Target baru (opsional)</label>' + dateInput('data-ldp-newtarget', f.newTarget, '') + '</div>'
+            : '<div class="hint soft">Pilih hasilnya, atau langsung ubah target di bawah.</div>') +
+        '</div>'
+      : '<div class="m-section"><div class="ldp-focus done">' + IC.check + 'Semua tahap LDP sudah tercapai.</div></div>';
+
+    var table = '<div class="ldp-table">' +
+      '<div class="ldp-tr head"><span>Tahap</span><span>Target</span><span>Tercapai</span></div>' +
+      STEPS.map(function (st, i) {
+        var fv = f.fields[st.key];
+        var s = x.steps[i];
+        return '<div class="ldp-tr' + (s.achieved ? ' done' : '') + (x.cur && x.cur.step.key === st.key ? ' current' : '') + '">' +
+          '<span class="ldp-step">' + (s.achieved ? IC.check : '') + esc(st.label) + '</span>' +
+          '<span class="field">' + dateInput('data-ldp-target="' + st.key + '"', fv.target, fv.targetRaw) + '</span>' +
+          '<span class="field">' + dateInput('data-ldp-date="' + st.key + '"', fv.date, fv.dateRaw, { max: true }) + '</span></div>';
+      }).join('') + '</div>';
+
+    var hist = x.history.length
+      ? x.history.map(function (e) {
+        return '<div class="ldp-hist ' + e.result + '"><span class="ldp-hist-date">' + esc(fmtIso(e.date)) + '</span>' +
+          '<span class="ldp-hist-main"><b>' + esc(e.stepLabel) + ' · ' + (e.result === 'berhasil' ? 'Berhasil' : 'Belum') + '</b>' +
+          (e.note ? '<span>' + esc(e.note) + '</span>' : '') +
+          '<span class="muted small">' + esc([e.target && 'target ' + fmtIso(e.target), e.newTarget && 'target baru ' + fmtIso(e.newTarget), e.by && 'oleh ' + e.by].filter(Boolean).join(' · ')) + '</span>' +
+          '</span></div>';
+      }).join('')
+      : '<div class="muted small">Belum ada update LDP.</div>';
+
+    $('#ldpModal').innerHTML =
+      '<div class="m-head"><div class="m-head-row">' +
+      '<div class="avatar lg">' + esc(A.initials(p.name)) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(p.name) + '</div>' +
+      '<div class="m-sub">' + esc([p.cg, 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="m-badges">' + A.posBadge(p) + '<span class="badge line">LDP</span></div></div>' +
+      '<button class="close-btn dark" data-ldp-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body">' + monthly +
+      '<div class="m-section"><h4>Target &amp; realisasi</h4>' + table + '</div>' +
+      '<div class="m-section"><h4>Riwayat update</h4>' + hist + '</div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="ldpErr"></span><button type="button" class="btn" data-ldp-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="ldpSave"><span class="spin"></span>' + IC.check + '<span id="ldpSaveLabel">Simpan</span></button></div>';
+    updateFormUi();
+  }
+
+  function updateFormUi() {
+    var f = L.form;
+    var err = formError(), changed = hasChanges();
+    $('#ldpSave').disabled = f.saving || !changed;
+    $('#ldpSave').classList.toggle('loading', f.saving);
+    $('#ldpSaveLabel').textContent = f.saving ? 'Menyimpan…' : changed ? 'Simpan' : 'Belum ada perubahan';
+    $('#ldpErr').textContent = f.showErr ? err : '';
+  }
+
+  function save() {
+    var f = L.form;
+    if (!f || f.saving || !hasChanges()) return;
+    if (formError()) { f.showErr = true; return updateFormUi(); }
+    f.saving = true;
+    updateFormUi();
+    var body = payload();
+    A.api('saveLdp', body).then(function (res) {
+      f.saving = false;
+      closeForm(true);
+      L.progress = res.progress || [];
+      L.loaded = true;
+      A.applyData(res.data);
+      renderAll();
+      A.refreshPerson();
+      A.toast(body.progress && body.progress.result === 'berhasil' ? 'Selamat! Tahap tercapai 🎉' : 'LDP tersimpan ✨');
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      updateFormUi();
+      A.toast('Gagal menyimpan: ' + A.errText(err), true);
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-ldp-status]'))) { L.filter.status = el.dataset.ldpStatus; return renderAll(); }
+    if ((el = t.closest('[data-ldp-open]'))) {
+      var p = A.state.byId[+el.dataset.ldpOpen];
+      if (p) { if (!L.loaded) load(); openForm(p); }
+      return;
+    }
+    if (!L.form) return;
+    if ((el = t.closest('[data-ldp-close]'))) return closeForm(false);
+    if ((el = t.closest('#ldpSave'))) return save();
+    if ((el = t.closest('[data-ldp-result]'))) {
+      L.form.result = L.form.result === el.dataset.ldpResult ? '' : el.dataset.ldpResult;
+      L.form.showErr = false;
+      return renderForm();
+    }
+  });
+
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'ldpSearch') { L.filter.q = t.value; return renderAll(); }
+    if (!L.form) return;
+    var d = t.dataset;
+    if (d.ldpTarget) L.form.fields[d.ldpTarget].target = t.value;
+    else if (d.ldpDate) L.form.fields[d.ldpDate].date = t.value;
+    else if ('ldpAchieved' in d) L.form.achieved = t.value;
+    else if ('ldpNote' in d) L.form.note = t.value;
+    else if ('ldpNewtarget' in d) L.form.newTarget = t.value;
+    else return;
+    updateFormUi();
+  });
+
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'ldpStep') { L.filter.step = e.target.value; renderAll(); }
+    if (e.target.id === 'ldpCoach') { L.filter.coach = e.target.value; renderAll(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (L.form && e.key === 'Escape') { e.stopPropagation(); closeForm(false); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGLdp = {
+    onDashboard: function () { load(); },
+    onShow: function () { if (!L.loaded) load(); renderAll(); },
+    reset: function () {
+      L.progress = []; L.loaded = false; L.loading = false;
+      L.filter = { status: 'needs', step: '', coach: '', q: '' };
+      if (L.form) closeForm(true);
+      $('#ldpSearch').value = '';
+      $('#ldpBadge').hidden = true;
+      $('#ldpList').innerHTML = '';
+    },
+  };
+})();
+</script>
