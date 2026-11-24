@@ -74,6 +74,7 @@ const MILESTONES = [
   { key: 'cgt1', label: 'CGT 1', group: 'CGT', header: 'CGT 1' },
   { key: 'cgt2', label: 'CGT 2', group: 'CGT', header: 'CGT 2' },
   { key: 'cgt3', label: 'CGT 3', group: 'CGT', header: 'CGT 3' },
+  { key: 'cgt4', label: 'CGT 4', group: 'CGT', header: 'CGT 4' },
 ];
 
 /** Field → accepted header names (first match wins, so order matters). */
@@ -109,6 +110,8 @@ const FIELDS = {
   eligibleTl: ['ELIGIBLE TL'],
   eligibleCoach: ['ELIGIBLE COACH'],
   eligibleCgl: ['ELIGIBLE CGL'],
+  attendance: ['KEHADIRAN', 'TOTAL KEHADIRAN'],
+  attendancePct: ['% KEHADIRAN', 'PERSENTASE KEHADIRAN'],
 };
 
 // ───────────────────────────── Web app ─────────────────────────────
@@ -150,13 +153,13 @@ function getDashboardData() {
     generatedAt: new Date().toISOString(),
     sheetName: sheet.getName(),
     spreadsheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
-    milestones: MILESTONES.map(function (m) {
-      return { key: m.key, label: m.label, group: m.group };
-    }),
+    milestones: MILESTONES.filter(function (m) { return parsed.columns[m.key] !== undefined; })
+      .map(function (m) { return { key: m.key, label: m.label, group: m.group }; }),
     positionOptions: POSITION_OPTIONS,
     // Only fields whose column exists in the sheet can be edited.
     editableFields: EDITABLE_FIELDS.filter(function (f) { return parsed.columns[f.key] !== undefined; }),
     coaches: parsed.coaches,
+    teamLeaders: parsed.teamLeaders,
     people: parsed.people,
     warnings: parsed.warnings,
   };
@@ -349,6 +352,7 @@ function parseDatabase_(values) {
   const people = [];
   const coachOrder = [];
   const coachFullName = {};
+  const teamLeaders = [];
   const seenCoach = {};
   const start = headerRow + (hasSub ? 2 : 1);
 
@@ -366,13 +370,17 @@ function parseDatabase_(values) {
     }
     if (norm_(name) === 'NAMA' || norm_(name) === 'NAME') continue; // repeated header
 
-    const coach = titleCase_(get(row, 'coach')) || currentCoach || 'Unassigned';
-    if (!seenCoach[coach]) { seenCoach[coach] = true; coachOrder.push(coach); }
-
     const cg = get(row, 'cg').toUpperCase();
     let position = get(row, 'position').toUpperCase();
-    const isCoach = position === 'COACH' || (!cg && !position);
-    if (isCoach) {
+    const isLeader = position === 'TEAM LEADER' || position === 'TL';
+    const coach = isLeader ? '' : (titleCase_(get(row, 'coach')) || currentCoach || 'Unassigned');
+    if (!isLeader && !seenCoach[coach]) { seenCoach[coach] = true; coachOrder.push(coach); }
+
+    const isCoach = isLeader || position === 'COACH' || (!cg && !position);
+    if (isLeader) {
+      position = 'TEAM LEADER';
+      teamLeaders.push(name);
+    } else if (isCoach) {
       position = 'COACH';
       if (!coachFullName[coach]) coachFullName[coach] = name;
     }
@@ -438,6 +446,9 @@ function parseDatabase_(values) {
       eligibleTl: get(row, 'eligibleTl'),
       eligibleCoach: get(row, 'eligibleCoach'),
       eligibleCgl: get(row, 'eligibleCgl'),
+      isLeader: isLeader,
+      attendance: toInt_(get(row, 'attendance')),
+      attendancePct: toInt_(get(row, 'attendancePct')),
       milestones: milestones,
     });
   }
@@ -454,7 +465,14 @@ function parseDatabase_(values) {
     }),
     warnings: warnings,
     columns: col,
+    teamLeaders: teamLeaders,
   };
+}
+
+/** "94%", "94", "15" → number; anything else → null. */
+function toInt_(s) {
+  const m = String(s || '').match(/^\s*(\d{1,3})(?:[.,]\d+)?\s*%?\s*$/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 /**

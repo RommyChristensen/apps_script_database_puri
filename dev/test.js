@@ -215,6 +215,24 @@ test('fields whose column is missing are not offered for editing', () => {
   assert.ok(d.editableFields.some((f) => f.key === 'phone'));
 });
 
+test('team leader row is not grouped under a coach; attendance is parsed', () => {
+  const v = clone(base);
+  v[3] = v[3].concat(['KEHADIRAN', '% KEHADIRAN']);
+  v[4] = v[4].concat(['', '']);
+  const tl = Array(v[3].length).fill('');
+  tl[2] = 'Rommy Christensen'; tl[1] = '-'; tl[C('POSISI')] = 'TEAM LEADER';
+  v.splice(5, 0, tl);
+  const target = v.findIndex((r, i) => i > 6 && r[C('POSISI')] === 'MEMBER');
+  v[target][v[3].length - 2] = '15'; v[target][v[3].length - 1] = '94%';
+  const d = boot(v).api.getDashboardData();
+  assert.deepStrictEqual(clone(d.teamLeaders), ['Rommy Christensen']);
+  assert.ok(!d.coaches.some((c) => c.name === ''), 'no empty coach group');
+  const r = d.people.find((x) => x.name === 'Rommy Christensen');
+  assert.ok(r.isLeader && r.isCoach && r.coach === '');
+  const m = d.people.find((x) => x.id === target + 1);
+  assert.strictEqual(m.attendance, 15); assert.strictEqual(m.attendancePct, 94);
+});
+
 const csv = process.argv[2];
 if (csv) {
   console.log('Code.gs (' + path.basename(csv) + ')');

@@ -76,6 +76,20 @@
   function msDone(p) { return state.data.milestones.filter(function (m) { return p.milestones[m.key]; }).length; }
   function msPct(p) { return Math.round(msDone(p) / state.data.milestones.length * 100); }
   function pct(a, b) { return b ? Math.round(a / b * 100) : 0; }
+  /** Average attendance % of the people that have it, or null. */
+  function avgAttendance(list) {
+    var xs = list.filter(function (p) { return p.attendancePct != null; });
+    return xs.length ? Math.round(xs.reduce(function (s, p) { return s + p.attendancePct; }, 0) / xs.length) : null;
+  }
+  function attendanceText(p) {
+    if (p.attendancePct == null) return '';
+    return 'Hadir ' + (p.attendance != null ? p.attendance + 'x · ' : '') + p.attendancePct + '%';
+  }
+  /** "AOG 03 · CGL Candyce Wie · Coach Christian" (or "Team Leader"). */
+  function whoLine(p, withCgl) {
+    if (p.isLeader) return 'Team Leader';
+    return [p.cg, withCgl && p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', p.coach ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ');
+  }
   function waLink(phone) {
     var d = String(phone || '').replace(/\D/g, '');
     if (!d) return '';
@@ -85,9 +99,11 @@
   }
   function posBadge(p) {
     var info = posInfo(p.position);
-    var label = p.position === 'COACH' ? 'Coach' : (info.key === 'OTHER' ? (p.position === 'UNKNOWN' ? '—' : p.position) : info.label);
-    var light = ['MEMBER', 'SIMPATISAN', 'VIP', 'OTHER'].indexOf(info.key) >= 0 && p.position !== 'COACH';
-    var bg = p.position === 'COACH' ? '#0b2a6f' : info.color;
+    var staff = p.position === 'COACH' || p.position === 'TEAM LEADER';
+    var label = p.position === 'COACH' ? 'Coach' : p.position === 'TEAM LEADER' ? 'Team Leader'
+      : (info.key === 'OTHER' ? (p.position === 'UNKNOWN' ? '—' : p.position) : info.label);
+    var light = ['MEMBER', 'SIMPATISAN', 'VIP', 'OTHER'].indexOf(info.key) >= 0 && !staff;
+    var bg = p.position === 'TEAM LEADER' ? 'linear-gradient(135deg,#0b2a6f,#2563eb)' : p.position === 'COACH' ? '#0b2a6f' : info.color;
     return '<span class="badge" style="background:' + bg + ';color:' + (light ? '#0b2a6f' : '#fff') + '">' + esc(label) + '</span>';
   }
   function statusBadge(p) {
@@ -189,6 +205,7 @@
         cgl: (leader && leader.name) || first.cgl || '',
         time: first.cgTime, area: first.cgArea, mode: first.cgStatus,
         active: list.filter(isActive).length,
+        attendance: avgAttendance(list),
       };
     });
     var gaps = {};
@@ -203,6 +220,7 @@
       cgGroups: cgs, gaps: gaps, avg: avg,
       active: members.filter(isActive).length,
       serving: members.filter(function (p) { return !!p.ministry; }).length,
+      attendance: avgAttendance(members),
     };
   }
 
@@ -217,8 +235,12 @@
     var serving = members.filter(function (p) { return !!p.ministry; }).length;
 
     $('#heroEyebrow').textContent = 'Live · ' + state.coaches.length + ' coach';
+    var tl = state.data.teamLeaders || [];
+    $('#heroSub').textContent = (tl.length ? 'Team Leader: ' + tl.join(', ') + '. ' : '') +
+      'Ringkasan jemaat per coach, CG, dan perjalanan bertumbuh.';
+    var avgHadir = avgAttendance(members);
     var stats = [
-      { n: members.length, label: 'Total Jiwa', hint: active + ' aktif' },
+      { n: members.length, label: 'Total Jiwa', hint: active + ' aktif' + (avgHadir != null ? ' · hadir rata-rata ' + avgHadir + '%' : '') },
       { n: Object.keys(cgSet).length, label: 'Connect Group', hint: 'rata-rata ' + (Object.keys(cgSet).length ? Math.round(members.length / Object.keys(cgSet).length) : 0) + ' / CG' },
       { n: cgl + sponsor, label: 'Leaders', hint: cgl + ' CGL · ' + sponsor + ' Sponsor' },
       { n: pct(serving, members.length), suffix: '%', label: 'Sudah Melayani', hint: serving + ' orang di pelayanan' },
@@ -249,7 +271,7 @@
         '<div class="cc-stat"><b>' + c.cgs.length + '</b><span>CG</span></div>' +
         '<div class="cc-stat"><b>' + pct(c.active, c.members.length) + '%</b><span>Aktif</span></div>' +
         '</div>' + stackBar(c.counts, total) +
-        '<div class="cc-foot"><span>' + (c.counts.CGL || 0) + ' CGL · ' + (c.counts.SPONSOR || 0) + ' Sponsor</span><span>Growth ' + c.avg + '%</span></div>' +
+        '<div class="cc-foot"><span>' + (c.counts.CGL || 0) + ' CGL · ' + (c.counts.SPONSOR || 0) + ' Sponsor</span><span>Growth ' + c.avg + '%' + (c.attendance != null ? ' · Hadir ' + c.attendance + '%' : '') + '</span></div>' +
         '</button>';
     }).join('') || '<div class="empty">Belum ada data.</div>';
   }
@@ -381,6 +403,7 @@
       if (g.area) meta.push('<span>' + ICON.pin + esc(g.area) + '</span>');
       if (g.mode) meta.push('<span>' + ICON.wifi + esc(g.mode) + '</span>');
       meta.push('<span>' + ICON.users + g.people.length + ' orang · ' + g.active + ' aktif</span>');
+      if (g.attendance != null) meta.push('<span>' + ICON.check + 'rata-rata hadir ' + g.attendance + '%</span>');
       return '<div class="cg-card" style="animation-delay:' + (i * 50) + 'ms"><div class="cg-top">' +
         '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0">' +
         '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + '</div>' +
@@ -411,7 +434,7 @@
       (list.length ? list.map(personRow).join('') : '<div class="empty">Tidak ada yang cocok dengan filter ini.</div>');
   }
   function personRow(p, i) {
-    var sub = [p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', p.school || p.occupation].filter(Boolean).join(' · ');
+    var sub = [p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', attendanceText(p) || p.school || p.occupation].filter(Boolean).join(' · ');
     var pc = msPct(p);
     return '<button class="person-row" data-person="' + p.id + '" style="animation-delay:' + Math.min(i || 0, 15) * 30 + 'ms">' +
       '<div class="avatar sm soft">' + esc(initials(p.name)) + '</div>' +
@@ -818,9 +841,10 @@
     return '<div class="m-head' + (editing ? ' editing' : '') + '" data-pid="' + p.id + '"><div class="m-head-row">' +
       '<div class="avatar lg" style="--accent:' + accent + '">' + esc(initials(p.name)) + '</div>' +
       '<div style="flex:1;min-width:0"><div class="m-name">' + esc(p.name) + '</div>' +
-      '<div class="m-sub">' + esc([p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="m-sub">' + esc(whoLine(p, true)) + '</div>' +
       '<div class="m-badges">' + posBadge(p) + statusBadge(p) + (p.cgStatus ? '<span class="badge line">' + esc(p.cgStatus) + '</span>' : '') +
-      '<span class="badge line">Growth ' + msPct(p) + '%</span>' + elig + '</div></div>' +
+      '<span class="badge line">Growth ' + msPct(p) + '%</span>' +
+      (p.attendancePct != null ? '<span class="badge line">' + esc(attendanceText(p)) + '</span>' : '') + elig + '</div></div>' +
       '<button class="close-btn dark" data-close-modal aria-label="Tutup">' + ICON.close + '</button></div>' +
       actionsHtml + '</div>' + body;
   }
@@ -838,7 +862,7 @@
       return '<button class="sr-item' + (i === 0 ? ' active' : '') + '" data-person="' + p.id + '" role="option">' +
         '<div class="avatar sm soft">' + esc(initials(p.name)) + '</div>' +
         '<div class="pr-main"><div class="pr-name">' + esc(p.name) + '</div><div class="pr-sub">' +
-        esc([p.cg, 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div></div>' + posBadge(p) + '</button>';
+        esc(whoLine(p, false)) + '</div></div>' + posBadge(p) + '</button>';
     }).join('') : '<div class="sr-empty">Tidak ditemukan untuk "' + esc(q) + '"</div>';
     box.classList.add('open');
   }
