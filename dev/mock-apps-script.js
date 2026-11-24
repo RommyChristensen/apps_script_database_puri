@@ -42,6 +42,14 @@
             getFormulas: function () { return cells(function (ri, ci) { return formulas[ri + ',' + ci] || ''; }); },
             setNumberFormat: function () { return this; },
             setFontWeight: function () { return this; },
+            setValues: function (vals) {
+              for (var i = 0; i < vals.length; i++) {
+                while (grid.length < r + i) grid.push([]);
+                for (var j = 0; j < vals[i].length; j++) grid[r + i - 1][c + j - 1] = vals[i][j];
+              }
+              writes.push({ sheet: name, row: r, col: c, values: vals });
+              return this;
+            },
             setValue: function (v) {
               while (grid.length < r) grid.push([]);
               grid[r - 1][c - 1] = v;
@@ -51,6 +59,7 @@
           };
         },
         appendRow: function (row) { grid.push(row.slice()); return sheet; },
+        deleteRow: function (n) { grid.splice(n - 1, 1); return sheet; },
         setFrozenRows: function () { return sheet; },
       };
       return sheet;
@@ -98,6 +107,13 @@
           for (var i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
           uuidCounter++;
           return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-4' + hex.slice(13, 16) + '-a' + hex.slice(17, 20) + '-' + hex.slice(20, 32);
+        },
+        // Enough of Utilities.formatDate for 'yyyy-MM-dd HH:mm' and 'yyMMddHHmmss' (local time).
+        formatDate: function (d, tz, fmt) {
+          var p = function (n) { return ('0' + n).slice(-2); };
+          var map = { yyyy: String(d.getFullYear()), yy: String(d.getFullYear()).slice(-2), MM: p(d.getMonth() + 1),
+            dd: p(d.getDate()), HH: p(d.getHours()), mm: p(d.getMinutes()), ss: p(d.getSeconds()) };
+          return fmt.replace(/yyyy|yy|MM|dd|HH|mm|ss/g, function (k) { return map[k]; });
         },
         // Like Apps Script: an array of signed bytes.
         computeDigest: function (alg, text) {

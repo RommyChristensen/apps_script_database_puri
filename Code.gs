@@ -19,6 +19,9 @@ const CONFIG = {
   LOG_SHEET_NAME: 'Edit Log',
   // Usernames and passwords for the coaches (see Auth.gs).
   AUTH_SHEET_NAME: 'Authentication',
+  // Meetings logged by coaches (see Meetings.gs). Created automatically if missing.
+  MEETING_SHEET_NAME: 'Meeting Log',
+  TIME_ZONE: 'Asia/Jakarta',
 };
 
 /** Values allowed in the POSISI column when editing. */

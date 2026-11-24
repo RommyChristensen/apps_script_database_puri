@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -28,7 +28,7 @@ function boot(values, opts) {
     CacheService: mocks.CacheService, Utilities: mocks.Utilities, HtmlService: {}, console,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -350,6 +350,104 @@ test('a missing Authentication tab gives a clear setup error', () => {
   vm.createContext(ctx);
   vm.runInContext(code + '\nthis.raw = { login };', ctx);
   assert.throws(() => ctx.raw.login('a', 'b'), /Authentication" belum ada/);
+});
+
+console.log('Meetings.gs');
+function meetingSetup(as) {
+  const s = boot(clone(base), { accounts: coachAccounts(), as: as || ['angie', 'angie-pass'] });
+  const admin = s.raw.login('admin', 'admin-pass').token;
+  const everyone = s.raw.getDashboardData(admin).people;
+  const of = (coach) => everyone.filter((p) => p.coach === coach && !p.isCoach);
+  const sheet = () => s.mocks.spreadsheet.getSheetByName('Meeting Log');
+  return { s, admin, of, sheet };
+}
+const meeting = (people, extra) => Object.assign({
+  date: '2026-11-20', people, category: 'Pembinaan', purpose: 'Persiapan naik sponsor',
+  tasks: [{ text: 'Daftar MSJ 3', deadline: '2026-12-10' }, { text: 'Follow up CG', deadline: '' }],
+}, extra);
+
+test('saving a meeting creates the tab (last), one row per task, as text', () => {
+  const { s, of, sheet } = meetingSetup();
+  const [a, b] = of('Angie');
+  const res = s.raw.saveMeeting(s.token, meeting([a.name, b.name]));
+  assert.ok(/^M\d{12}[0-9A-F]{4}$/.test(res.savedId));
+  const tabs = s.mocks.spreadsheet.getSheets().map((t) => t.getName());
+  assert.strictEqual(tabs[0], 'Database', 'database tab stays first');
+  assert.strictEqual(tabs[tabs.length - 1], 'Meeting Log');
+  const g = sheet()._grid;
+  assert.deepStrictEqual(clone(g[0].slice(0, 4)), ['MEETING ID', 'TANGGAL', 'COACH', 'DENGAN']);
+  assert.strictEqual(g.length, 3);
+  assert.deepStrictEqual(clone(g[1].slice(1, 10)), ['2026-11-20', 'Angie', a.name + '; ' + b.name, 'Pembinaan',
+    'Persiapan naik sponsor', '1', 'Daftar MSJ 3', '2026-12-10', '-']);
+  assert.strictEqual(g[2][7], 'Follow up CG');
+  const m = res.meetings[0];
+  assert.deepStrictEqual(clone(m.people), [a.name, b.name]);
+  assert.strictEqual(m.tasks.length, 2);
+  assert.strictEqual(m.createdBy, 'angie');
+});
+
+test('a meeting without tasks is one row; editing replaces its rows and keeps the creator', () => {
+  const { s, of, sheet } = meetingSetup();
+  const [a] = of('Angie');
+  const id = s.raw.saveMeeting(s.token, meeting([a.name], { tasks: [] })).savedId;
+  assert.strictEqual(sheet()._grid.length, 2);
+  const admin = s.raw.login('admin', 'admin-pass').token;
+  const res = s.raw.saveMeeting(admin, meeting([a.name], { id, purpose: 'Diubah admin', tasks: [{ text: 'A' }, { text: 'B' }, { text: 'C' }] }));
+  assert.strictEqual(sheet()._grid.length, 4);
+  assert.ok(sheet()._grid.slice(1).every((r) => r[0] === id && r[5] === 'Diubah admin' && r[10] === 'angie'));
+  assert.strictEqual(res.meetings.length, 1);
+});
+
+test('ticking a task only changes that task', () => {
+  const { s, of } = meetingSetup();
+  const [a] = of('Angie');
+  const id = s.raw.saveMeeting(s.token, meeting([a.name])).savedId;
+  const res = s.raw.setTaskDone(s.token, id, '2', true);
+  assert.deepStrictEqual(clone(res.meetings[0].tasks.map((t) => t.done)), [false, true]);
+  assert.deepStrictEqual(clone(s.raw.setTaskDone(s.token, id, '2', false).meetings[0].tasks.map((t) => t.done)), [false, false]);
+  assert.throws(() => s.raw.setTaskDone(s.token, id, '9', true), /sudah tidak ada/);
+});
+
+test('coaches only see their own meetings and cannot touch other coaches\' meetings or people', () => {
+  const { s, of, admin } = meetingSetup();
+  const carla = of('Carla')[0];
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([carla.name])), /tidak ditemukan di data coach kamu/);
+  const carlaMeeting = s.raw.saveMeeting(admin, meeting([carla.name])).savedId;
+  s.raw.saveMeeting(s.token, meeting([of('Angie')[0].name]));
+  const mine = s.raw.getMeetings(s.token).meetings;
+  assert.strictEqual(mine.length, 1);
+  assert.ok(mine.every((m) => m.coach === 'Angie'));
+  assert.strictEqual(s.raw.getMeetings(admin).meetings.length, 2);
+  assert.throws(() => s.raw.setTaskDone(s.token, carlaMeeting, '1', true), /tidak punya akses/);
+  assert.throws(() => s.raw.deleteMeeting(s.token, carlaMeeting), /tidak punya akses/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([of('Angie')[0].name], { id: carlaMeeting })), /tidak punya akses/);
+});
+
+test('admin cannot mix people of different coaches in one meeting', () => {
+  const { s, of, admin } = meetingSetup();
+  assert.throws(() => s.raw.saveMeeting(admin, meeting([of('Angie')[0].name, of('Carla')[0].name])), /satu coach saja/);
+});
+
+test('meeting validation', () => {
+  const { s, of } = meetingSetup();
+  const n = of('Angie')[0].name;
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([n], { date: '' })), /tanggal/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([n], { date: '2026-02-31' })), /tanggal/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([])), /minimal satu orang/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([n], { category: 'Ngobrol' })), /kategori/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([n], { purpose: ' ' })), /tujuan/);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([n], { tasks: [{ text: 'x', deadline: 'besok' }] })), /Deadline/);
+  assert.throws(() => s.raw.getMeetings('nope'), /AUTH:/);
+});
+
+test('deleting a meeting removes all its rows and leaves others alone', () => {
+  const { s, of, sheet } = meetingSetup();
+  const [a, b] = of('Angie');
+  const keep = s.raw.saveMeeting(s.token, meeting([a.name])).savedId;
+  const drop = s.raw.saveMeeting(s.token, meeting([b.name], { date: '2026-11-21' })).savedId;
+  const res = s.raw.deleteMeeting(s.token, drop);
+  assert.deepStrictEqual(clone(res.meetings.map((m) => m.id)), [keep]);
+  assert.ok(sheet()._grid.slice(1).every((r) => r[0] === keep));
 });
 
 const csv = process.argv[2];

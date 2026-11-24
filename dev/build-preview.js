@@ -103,8 +103,10 @@ function main() {
       HtmlService = mocks.HtmlService, CacheService = mocks.CacheService, Utilities = mocks.Utilities;
     ${read('Code.gs')}
     ${read('Auth.gs')}
+    ${read('Meetings.gs')}
     window.__mock = mocks;
-    var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout };
+    var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
+      getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

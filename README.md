@@ -7,6 +7,12 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   **Authentication** tab and only sees (and can only edit) the people of their own coach group.
   Admin accounts (the team leader) see every coach.
 
+- **Menu**: *Dashboard* and *Meeting* (in the topbar on desktop, a bottom tab bar on phones).
+- **Meeting log**: coaches record every meeting with their CGLs / CG members: date, with whom (picked
+  from their own people), a purpose category + description, and an action list where each task has a
+  deadline and a done-checkmark the coach can tick. Filters for open / overdue / done tasks, purpose and
+  text search; overdue tasks show a red badge on the menu. Each person's profile lists their meetings
+  with a *Catat meeting* shortcut.
 - **Coach cards**: number of people, number of CGs, % active, position mix and average growth
 - **Coach drawer** (slides in): tabs for CG (members per group), Jemaat (filter by position/status) and Growth (5M / MSJ / CGT completion, click to see who hasn't finished)
 - **Person modal**: growth journey, path (Member → Sponsor → CGL → Coach), personal info, notes, plus WhatsApp / call / email buttons and a link to the person's row in the sheet
@@ -23,6 +29,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | --- | --- |
 | `Code.gs` | `doGet`, `getDashboardData`, `updatePerson`, and the sheet parser (finds columns by header name) |
 | `Auth.gs` | Login, password hashing, sessions, and the per-coach access checks |
+| `Meetings.gs` | Meeting log: read, save, tick a task, delete (per-coach access) |
+| `MeetingsUi.html` | Menu, Meeting page, meeting form and the meeting section in profiles |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
 | `appsscript.json` | Manifest: Sheets scope, web app runs as the owner, open to anyone (login required inside) |
 | `dev/build-preview.js` | Builds `dev/preview.html`: the real `Code.gs` running in the browser on a fake sheet |
@@ -32,7 +40,7 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code` and `Auth`, plus HTML files named `Index`, `Stylesheet` and `JavaScript`.
+   script files `Code`, `Auth` and `Meetings`, plus HTML files named `Index`, `Stylesheet`, `JavaScript` and `MeetingsUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -89,6 +97,21 @@ npm i -g @google/clasp && clasp login
 clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboard"
 clasp push && clasp deploy
 ```
+
+## Meeting Log tab
+
+One row per task; a meeting with several action items has several rows with the same `MEETING ID`
+(a meeting without tasks is one row with an empty `TO DO`).
+
+| MEETING ID | TANGGAL | COACH | DENGAN | KATEGORI | TUJUAN | NO | TO DO | DEADLINE | SELESAI | DIBUAT OLEH | DIBUAT PADA | DIPERBARUI |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M2611241030… | 2026-11-24 | Angie | Sherly Virginia; Clementine Liezel Susanto | Persiapan naik jenjang | Persiapan naik jadi CGL… | 1 | Daftar MSJ 3 | 2026-12-10 | ✔ | angie | 2026-11-24 10:30 | 2026-11-26 19:02 |
+
+- Dates are text in `yyyy-mm-dd`. `DENGAN` holds names exactly as in the database, separated by `; `.
+- A coach can only pick their own people and only sees/changes meetings whose `COACH` is theirs; admin sees all.
+  All people in one meeting must belong to the same coach.
+- Purpose categories are listed in `MEETING.CATEGORIES` in `Meetings.gs` (also the dropdown in the tab).
+- The tab is created automatically on the first save if it doesn't exist.
 
 ## Merging the 5 coaches into one tab
 

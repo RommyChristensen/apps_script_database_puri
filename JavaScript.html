@@ -163,7 +163,8 @@
     }).join('') + '</div>';
   }
   function updateLock() {
-    var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open');
+    var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
+      !!document.querySelector('#mtModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -205,6 +206,7 @@
     renderCoaches();
     renderComposition();
     renderGaps();
+    if (window.AOGMeetings) window.AOGMeetings.onDashboard();
     var when = new Date(data.generatedAt);
     $('#foot').textContent = 'Sumber: tab "' + data.sheetName + '" · diperbarui ' +
       when.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
@@ -873,6 +875,7 @@
       '<div class="m-section"><h4>Perjalanan Bertumbuh</h4><div class="journey">' + journey + '</div></div>' +
       (p.notes ? '<div class="m-section"><h4>Catatan</h4><div class="note">' + esc(p.notes) + '</div></div>' : '') +
       '<div class="m-section"><h4>Jenjang</h4><div class="timeline">' + tl + '</div></div>' +
+      (window.AOGMeetings && !p.isCoach ? window.AOGMeetings.personSection(p) : '') +
       '<div class="m-section"><h4>Data Diri</h4><div class="info-grid">' + info + '</div></div>' +
       '</div>';
 
@@ -951,6 +954,7 @@
     closeSearch();
     $('#searchInput').value = '';
     $('#coachGrid').innerHTML = '';
+    if (window.AOGMeetings) window.AOGMeetings.reset();
     showLogin(message);
   }
 
@@ -1061,6 +1065,21 @@
 
   window.addEventListener('resize', moveTabIndicator);
   $('#refreshBtn').addEventListener('click', function () { load(true); });
+
+  /** Shared with MeetingsUi.html. */
+  window.AOG = {
+    $: $, $$: $$, esc: esc, initials: initials, api: api, state: state, toast: toast, ICON: ICON,
+    posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson,
+    /** Re-render the open person modal (e.g. after a meeting was saved). */
+    refreshPerson: function () {
+      var head = $('#modal [data-pid]');
+      if (head && $('#modalWrap').classList.contains('open') && !state.edit) {
+        var p = state.byId[+head.dataset.pid];
+        var top = $('#modal').scrollTop;
+        if (p) { $('#modal').innerHTML = renderPerson(p); $('#modal').scrollTop = top; }
+      }
+    },
+  };
 
   saveToken(readToken());
   if (state.token) load(false); else showLogin('');

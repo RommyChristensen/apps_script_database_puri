@@ -1,0 +1,582 @@
+<script>
+/* Meeting tracker UI: the "Meeting" menu, the meeting form and the meeting
+   section in each person's profile. Talks to Meetings.gs through AOG.api. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+
+  var IC = {
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    flag: '<svg class="i" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+    users: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
+    cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  };
+  var VIEW_KEY = 'aogpuri.view';
+
+  var M = {
+    meetings: [], categories: [], loaded: false, loading: false,
+    filter: { status: 'open', category: '', coach: '', q: '' },
+    form: null, // { id, date, people: [names], category, purpose, tasks: [{ text, deadline, done }], saving, pick }
+    view: 'dashboard',
+  };
+
+  // ───────────── helpers ─────────────
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function toDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  function fmt(iso, opts) {
+    var d = toDate(iso);
+    return d ? d.toLocaleDateString('id-ID', opts || { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  }
+  function daysFromToday(iso) {
+    var d = toDate(iso), t = toDate(today());
+    return d ? Math.round((d - t) / 86400000) : null;
+  }
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function isOverdue(t) { return !t.done && t.deadline && t.deadline < today(); }
+  function openTasks(m) { return m.tasks.filter(function (t) { return !t.done; }); }
+  function isAdmin() { return !!(A.state.data && A.state.data.user && A.state.data.user.isAdmin); }
+
+  /** People of the database that a meeting can be with (no coaches / team leader). */
+  function candidates() {
+    return (A.state.people || []).filter(function (p) { return !p.isCoach; });
+  }
+  function findPerson(name, coach) {
+    var n = norm(name);
+    return candidates().filter(function (p) { return norm(p.name) === n && (!coach || p.coach === coach); })[0];
+  }
+
+  function dueLabel(t) {
+    if (!t.deadline) return '';
+    var d = daysFromToday(t.deadline);
+    var txt = fmt(t.deadline, { day: 'numeric', month: 'short' });
+    if (t.done) return '<span class="due">' + IC.flag + esc(txt) + '</span>';
+    if (d < 0) return '<span class="due overdue">' + IC.flag + 'Terlambat ' + (-d) + ' hari · ' + esc(txt) + '</span>';
+    if (d === 0) return '<span class="due soon">' + IC.flag + 'Hari ini</span>';
+    if (d <= 3) return '<span class="due soon">' + IC.flag + d + ' hari lagi · ' + esc(txt) + '</span>';
+    return '<span class="due">' + IC.flag + esc(txt) + '</span>';
+  }
+
+  // ───────────── data ─────────────
+  function load() {
+    if (M.loading || !A.state.token) return;
+    M.loading = true;
+    renderList();
+    A.api('getMeetings').then(function (res) {
+      M.loading = false;
+      setMeetings(res);
+    }, function (err) {
+      M.loading = false;
+      if (err.isAuth) return;
+      $('#mtList').innerHTML = '<div class="error-card">Meeting tidak bisa dimuat.<br><span class="small">' + esc(A.errText(err)) + '</span></div>';
+    });
+  }
+
+  function setMeetings(res) {
+    M.meetings = res.meetings || [];
+    M.categories = res.categories || [];
+    M.loaded = true;
+    renderAll();
+    A.refreshPerson();
+  }
+
+  function renderAll() {
+    renderBadge();
+    renderFilters();
+    renderStats();
+    renderList();
+  }
+
+  function renderBadge() {
+    var n = 0;
+    M.meetings.forEach(function (m) { m.tasks.forEach(function (t) { if (isOverdue(t)) n++; }); });
+    var b = $('#navBadge');
+    b.hidden = !n;
+    b.textContent = n > 99 ? '99+' : String(n);
+    b.title = n + ' tugas terlambat';
+  }
+
+  // ───────────── list ─────────────
+  function statusOf(m) {
+    if (!m.tasks.length) return 'none';
+    if (m.tasks.some(isOverdue)) return 'overdue';
+    return openTasks(m).length ? 'open' : 'done';
+  }
+
+  function filtered() {
+    var f = M.filter, q = norm(f.q);
+    return M.meetings.filter(function (m) {
+      var st = statusOf(m);
+      if (f.status === 'open' && st !== 'open' && st !== 'overdue') return false;
+      if (f.status === 'overdue' && st !== 'overdue') return false;
+      if (f.status === 'done' && st !== 'done') return false;
+      if (f.category && m.category !== f.category) return false;
+      if (f.coach && m.coach !== f.coach) return false;
+      if (q) {
+        var hay = norm([m.people.join(' '), m.purpose, m.category, m.coach].concat(m.tasks.map(function (t) { return t.text; })).join(' '));
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderFilters() {
+    var counts = { all: M.meetings.length, open: 0, overdue: 0, done: 0 };
+    M.meetings.forEach(function (m) {
+      var st = statusOf(m);
+      if (st === 'open' || st === 'overdue') counts.open++;
+      if (st === 'overdue') counts.overdue++;
+      if (st === 'done') counts.done++;
+    });
+    $('#mtStatusChips').innerHTML = [['open', 'Ada tugas terbuka'], ['overdue', 'Terlambat'], ['done', 'Semua tugas selesai'], ['all', 'Semua meeting']]
+      .map(function (s) {
+        return '<button class="chip' + (M.filter.status === s[0] ? ' active' : '') + (s[0] === 'overdue' && counts.overdue ? ' is-warn' : '') +
+          '" data-mt-status="' + s[0] + '">' + s[1] + '<span class="count">' + counts[s[0]] + '</span></button>';
+      }).join('');
+    var cat = $('#mtCategory');
+    cat.innerHTML = '<option value="">Semua kategori</option>' + M.categories.map(function (c) {
+      return '<option' + (M.filter.category === c ? ' selected' : '') + '>' + esc(c) + '</option>';
+    }).join('');
+    var coach = $('#mtCoach');
+    coach.hidden = !isAdmin();
+    if (isAdmin()) {
+      coach.innerHTML = '<option value="">Semua coach</option>' + (A.state.coaches || []).map(function (c) {
+        return '<option value="' + esc(c.key) + '"' + (M.filter.coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
+      }).join('');
+    }
+  }
+
+  function renderStats() {
+    var month = today().slice(0, 7), thisMonth = 0, open = 0, overdue = 0, done = 0, total = 0;
+    M.meetings.forEach(function (m) {
+      if (m.date.slice(0, 7) === month) thisMonth++;
+      m.tasks.forEach(function (t) {
+        total++;
+        if (t.done) done++; else open++;
+        if (isOverdue(t)) overdue++;
+      });
+    });
+    var stats = [
+      { n: thisMonth, label: 'Meeting bulan ini', cls: '' },
+      { n: open, label: 'Tugas terbuka', cls: '' },
+      { n: overdue, label: 'Tugas terlambat', cls: overdue ? 'is-warn' : '' },
+      { n: total ? Math.round(done / total * 100) + '%' : '–', label: 'Tugas selesai', cls: 'is-ok' },
+    ];
+    $('#mtStats').innerHTML = stats.map(function (s, i) {
+      return '<div class="mt-stat ' + s.cls + '" style="animation-delay:' + i * 50 + 'ms"><b>' + s.n + '</b><span>' + s.label + '</span></div>';
+    }).join('');
+  }
+
+  function renderList() {
+    var box = $('#mtList');
+    if (!box) return;
+    if (!M.loaded) {
+      box.innerHTML = '<div class="mt-card skeleton" style="height:150px"></div><div class="mt-card skeleton" style="height:150px"></div>';
+      return;
+    }
+    var list = filtered();
+    if (!list.length) {
+      box.innerHTML = '<div class="mt-empty">' + IC.cal + '<b>' +
+        (M.meetings.length ? 'Tidak ada meeting yang cocok dengan filter ini.' : 'Belum ada meeting yang dicatat.') +
+        '</b><span>' + (M.meetings.length ? 'Coba ubah filter di atas.' : 'Klik "Meeting baru" untuk mencatat pertemuan pertama.') + '</span></div>';
+      return;
+    }
+    var html = '', lastMonth = '';
+    list.forEach(function (m, i) {
+      var month = fmt(m.date, { month: 'long', year: 'numeric' });
+      if (month !== lastMonth) { lastMonth = month; html += '<div class="mt-month">' + esc(month) + '</div>'; }
+      html += meetingCard(m, i);
+    });
+    box.innerHTML = html;
+  }
+
+  function meetingCard(m, i) {
+    var d = toDate(m.date);
+    var done = m.tasks.filter(function (t) { return t.done; }).length;
+    var people = m.people.map(function (name) {
+      var p = findPerson(name, m.coach);
+      var info = p ? A.posInfo(p.position) : null;
+      return p
+        ? '<button class="mini-person" data-person="' + p.id + '"><span class="dot" style="background:' + info.color + '">' + esc(A.initials(p.name)) + '</span>' + esc(p.name) + '</button>'
+        : '<span class="mini-person off" title="Tidak ada lagi di database"><span class="dot" style="background:#cbd5e1">?</span>' + esc(name) + '</span>';
+    }).join('');
+    var tasks = m.tasks.map(function (t) {
+      return '<li class="task' + (t.done ? ' done' : '') + (isOverdue(t) ? ' overdue' : '') + '">' +
+        '<button class="tick" data-mt-tick="' + esc(m.id) + '" data-no="' + esc(t.no) + '" aria-pressed="' + t.done + '" title="Tandai selesai">' + IC.check + '</button>' +
+        '<span class="t-text">' + esc(t.text) + '</span>' + dueLabel(t) + '</li>';
+    }).join('');
+    return '<article class="mt-card st-' + statusOf(m) + '" style="animation-delay:' + Math.min(i, 12) * 40 + 'ms">' +
+      '<div class="mt-date"><b>' + (d ? d.getDate() : '?') + '</b><span>' + esc(fmt(m.date, { month: 'short' })) + '</span></div>' +
+      '<div class="mt-main">' +
+      '<div class="mt-top"><span class="mt-cat">' + esc(m.category) + '</span>' +
+      (isAdmin() ? '<span class="badge line">Coach ' + esc(m.coach) + '</span>' : '') +
+      '<div class="mt-actions"><button class="icon-sm" data-mt-edit="' + esc(m.id) + '" title="Edit">' + IC.edit + '</button>' +
+      '<button class="icon-sm danger" data-mt-del="' + esc(m.id) + '" title="Hapus">' + IC.trash + '</button></div></div>' +
+      '<div class="cg-members mt-people">' + people + '</div>' +
+      '<p class="mt-purpose">' + esc(m.purpose) + '</p>' +
+      (m.tasks.length
+        ? '<ul class="tasks">' + tasks + '</ul><div class="mt-progress"><div class="bar"><i style="width:' + (done / m.tasks.length * 100) + '%"></i></div><span>' + done + '/' + m.tasks.length + ' selesai</span></div>'
+        : '<div class="muted small">Tanpa action list.</div>') +
+      '</div></article>';
+  }
+
+  // ───────────── ticking / deleting ─────────────
+  function tick(btn) {
+    var id = btn.dataset.mtTick, no = btn.dataset.no;
+    var m = M.meetings.filter(function (x) { return x.id === id; })[0];
+    var t = m && m.tasks.filter(function (x) { return x.no === no; })[0];
+    if (!t || btn.disabled) return;
+    t.done = !t.done; // optimistic
+    btn.disabled = true;
+    renderAll();
+    A.api('setTaskDone', id, no, t.done).then(function (res) {
+      setMeetings(res);
+      A.toast(t.done ? 'Tugas selesai ✔' : 'Tugas dibuka lagi');
+    }, function (err) {
+      if (err.isAuth) return;
+      t.done = !t.done;
+      renderAll();
+      A.toast('Gagal menyimpan: ' + A.errText(err), true);
+    });
+  }
+
+  function remove(id) {
+    var m = M.meetings.filter(function (x) { return x.id === id; })[0];
+    if (!m || !window.confirm('Hapus meeting ' + fmt(m.date) + ' dengan ' + m.people.join(', ') + '?')) return;
+    A.api('deleteMeeting', id).then(function (res) {
+      setMeetings(res);
+      A.toast('Meeting dihapus');
+    }, function (err) { if (!err.isAuth) A.toast('Gagal menghapus: ' + A.errText(err), true); });
+  }
+
+  // ───────────── form ─────────────
+  function openForm(meeting, presetPerson) {
+    M.form = meeting ? {
+      id: meeting.id, date: meeting.date, people: meeting.people.slice(), category: meeting.category,
+      purpose: meeting.purpose, saving: false, pick: '',
+      tasks: meeting.tasks.map(function (t) { return { text: t.text, deadline: t.deadline, done: t.done }; }),
+    } : {
+      id: '', date: today(), people: presetPerson ? [presetPerson.name] : [], category: '', purpose: '',
+      tasks: [{ text: '', deadline: '', done: false }], saving: false, pick: '',
+    };
+    M.form.original = JSON.stringify(formPayload());
+    renderForm();
+    $('#mtModalWrap').classList.add('open');
+    $('#mtModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+    setTimeout(function () { var el = $('#mtPick'); if (el && !M.form.people.length) el.focus(); }, 300);
+  }
+
+  function closeForm(force) {
+    if (!M.form) return;
+    if (M.form.saving) return;
+    if (!force && JSON.stringify(formPayload()) !== M.form.original && !window.confirm('Buang perubahan yang belum disimpan?')) return;
+    M.form = null;
+    $('#mtModalWrap').classList.remove('open');
+    $('#mtModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  function formPayload() {
+    var f = M.form;
+    return {
+      id: f.id, date: f.date, people: f.people, category: f.category, purpose: f.purpose.trim(),
+      tasks: f.tasks.filter(function (t) { return t.text.trim(); })
+        .map(function (t) { return { text: t.text.trim(), deadline: t.deadline, done: t.done }; }),
+    };
+  }
+
+  function formErrors() {
+    var f = M.form, e = {};
+    if (!f.date) e.date = 'Isi tanggal meeting';
+    if (!f.people.length) e.people = 'Pilih minimal satu orang';
+    if (!f.category) e.category = 'Pilih kategori';
+    if (f.purpose.trim().length < 3) e.purpose = 'Tulis tujuan meeting';
+    return e;
+  }
+
+  /** Coach the form is locked to once someone is picked (matters for admin). */
+  function formCoach() {
+    var first = M.form.people[0];
+    var p = first && candidates().filter(function (x) { return norm(x.name) === norm(first); })[0];
+    return p ? p.coach : '';
+  }
+
+  function renderForm() {
+    var f = M.form;
+    var chips = f.people.map(function (name, i) {
+      var p = findPerson(name);
+      return '<span class="pick-chip"><span class="dot" style="background:' + (p ? A.posInfo(p.position).color : '#cbd5e1') + '">' +
+        esc(A.initials(name)) + '</span>' + esc(name) +
+        '<button type="button" data-unpick="' + i + '" aria-label="Hapus ' + esc(name) + '">' + IC.close + '</button></span>';
+    }).join('');
+    var cats = M.categories.map(function (c) {
+      return '<button type="button" class="chip' + (f.category === c ? ' active' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
+    }).join('');
+
+    $('#mtModal').innerHTML =
+      '<div class="m-head mt-form-head"><div class="m-head-row">' +
+      '<div class="avatar lg">' + IC.cal + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + (f.id ? 'Edit meeting' : 'Meeting baru') + '</div>' +
+      '<div class="m-sub">Setiap meeting punya tujuan dan action list yang jelas.</div></div>' +
+      '<button class="close-btn dark" data-mt-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body mt-form">' +
+      '<div class="form-grid">' +
+      '<div class="field" data-err="date"><label for="mtDate">Tanggal</label><input id="mtDate" type="date" value="' + esc(f.date) + '" max="' + today() + '"><div class="err"></div></div>' +
+      '<div class="field"><label>Coach</label><input value="' + esc(formCoach() ? 'Coach ' + formCoach() : (isAdmin() ? 'Mengikuti orang yang dipilih' : 'Coach ' + (A.state.data.user.coach || ''))) + '" disabled></div>' +
+      '</div>' +
+      '<div class="field wide" data-err="people"><label for="mtPick">Dengan siapa</label>' +
+      '<div class="picker"><div class="pick-chips">' + chips +
+      '<input id="mtPick" placeholder="' + (f.people.length ? 'Tambah orang…' : 'Cari nama CGL / jemaat…') + '" autocomplete="off" value="' + esc(f.pick) + '"></div>' +
+      '<div class="pick-list" id="mtPickList"></div></div><div class="err"></div></div>' +
+      '<div class="field wide" data-err="category"><label>Kategori tujuan</label><div class="chips seg tight">' + cats + '</div><div class="err"></div></div>' +
+      '<div class="field wide" data-err="purpose"><label for="mtPurpose">Kenapa meeting ini diadakan?</label>' +
+      '<textarea id="mtPurpose" rows="3" maxlength="1000" placeholder="mis. Persiapan naik jadi sponsor, membahas jadwal MSJ 3…">' + esc(f.purpose) + '</textarea><div class="err"></div></div>' +
+      '<div class="field wide"><label>To do / action list</label><div class="task-edit" id="mtTasks">' + taskRows() + '</div>' +
+      '<button type="button" class="link-btn add-task" data-add-task>' + IC.plus + 'Tambah tugas</button></div>' +
+      '</div>' +
+      '<div class="m-footer"><button type="button" class="btn" data-mt-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="mtSave"><span class="spin"></span>' + IC.check + '<span id="mtSaveLabel">Simpan meeting</span></button></div>';
+    renderPickList();
+    updateFormUi(false);
+  }
+
+  function taskRows() {
+    return M.form.tasks.map(function (t, i) {
+      return '<div class="task-row">' +
+        '<button type="button" class="tick' + (t.done ? ' on' : '') + '" data-task-done="' + i + '" aria-pressed="' + t.done + '" title="Selesai?">' + IC.check + '</button>' +
+        '<input class="t-in" data-task-text="' + i + '" value="' + esc(t.text) + '" maxlength="300" placeholder="Tugas ' + (i + 1) + ', mis. Daftar MSJ 3">' +
+        '<input class="d-in" type="date" data-task-deadline="' + i + '" value="' + esc(t.deadline) + '" title="Deadline">' +
+        '<button type="button" class="icon-sm" data-task-remove="' + i + '" aria-label="Hapus tugas">' + IC.close + '</button></div>';
+    }).join('');
+  }
+
+  function renderPickList() {
+    var box = $('#mtPickList');
+    if (!box) return;
+    var q = norm(M.form.pick);
+    var lockCoach = formCoach();
+    var taken = M.form.people.map(norm);
+    var list = candidates().filter(function (p) {
+      if (taken.indexOf(norm(p.name)) >= 0) return false;
+      if (lockCoach && p.coach !== lockCoach) return false;
+      return !q || norm([p.name, p.cg, p.cgl].join(' ')).indexOf(q) >= 0;
+    });
+    // CGLs first, then by name
+    list.sort(function (a, b) { return (a.position === 'CGL' ? 0 : 1) - (b.position === 'CGL' ? 0 : 1) || a.name.localeCompare(b.name); });
+    var focused = document.activeElement && document.activeElement.id === 'mtPick';
+    box.classList.toggle('open', (focused && !M.form.hideList) || !!q);
+    box.innerHTML = list.slice(0, 40).map(function (p) {
+      var info = A.posInfo(p.position);
+      return '<button type="button" class="pick-item" data-pick="' + esc(p.name) + '"><span class="dot" style="background:' + info.color + '">' +
+        esc(A.initials(p.name)) + '</span><span class="pr-main"><span class="pr-name">' + esc(p.name) + '</span><span class="pr-sub">' +
+        esc([p.cg, p.position, isAdmin() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span></button>';
+    }).join('') || '<div class="sr-empty">Tidak ada yang cocok.</div>';
+  }
+
+  function updateFormUi(showErrors) {
+    var errs = formErrors();
+    $$('#mtModal [data-err]').forEach(function (el) {
+      var msg = showErrors ? errs[el.dataset.err] || '' : '';
+      el.classList.toggle('invalid', !!msg);
+      $('.err', el).textContent = msg;
+    });
+    var f = M.form;
+    $('#mtSave').disabled = f.saving;
+    $('#mtSave').classList.toggle('loading', f.saving);
+    $('#mtSaveLabel').textContent = f.saving ? 'Menyimpan…' : 'Simpan meeting';
+  }
+
+  function save() {
+    var f = M.form;
+    if (!f || f.saving) return;
+    if (Object.keys(formErrors()).length) { updateFormUi(true); return; }
+    f.saving = true;
+    updateFormUi(false);
+    A.api('saveMeeting', formPayload()).then(function (res) {
+      f.saving = false;
+      closeForm(true);
+      setMeetings(res);
+      A.toast(f.id ? 'Meeting diperbarui ✨' : 'Meeting tercatat ✨');
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      updateFormUi(false);
+      A.toast('Gagal menyimpan: ' + A.errText(err), true);
+    });
+  }
+
+  // ───────────── person profile section ─────────────
+  function personSection(p) {
+    var list = M.meetings.filter(function (m) {
+      return m.coach === p.coach && m.people.some(function (n) { return norm(n) === norm(p.name); });
+    });
+    var open = 0;
+    list.forEach(function (m) { open += openTasks(m).length; });
+    var items = list.slice(0, 4).map(function (m) {
+      var done = m.tasks.filter(function (t) { return t.done; }).length;
+      return '<button class="pm-item" data-mt-show="' + esc(p.name) + '"><span class="pm-date">' + esc(fmt(m.date, { day: 'numeric', month: 'short' })) + '</span>' +
+        '<span class="pm-main"><b>' + esc(m.category) + '</b><span>' + esc(m.purpose) + '</span></span>' +
+        (m.tasks.length ? '<span class="badge ' + (m.tasks.some(isOverdue) ? 'is-warn' : 'line') + '">' + done + '/' + m.tasks.length + '</span>' : '') + '</button>';
+    }).join('');
+    return '<div class="m-section"><h4>Meeting' + (list.length ? ' <span class="h4-hint">' + list.length + ' tercatat' + (open ? ' · ' + open + ' tugas terbuka' : '') + '</span>' : '') +
+      '<button type="button" class="link-btn h4-action" data-new-meeting-for="' + p.id + '">' + IC.plus + 'Catat meeting</button></h4>' +
+      (!M.loaded ? '<div class="muted small">Memuat…</div>' : items || '<div class="muted small">Belum ada meeting dengan ' + esc(p.name.split(' ')[0]) + '.</div>') +
+      (list.length > 4 ? '<button class="link-btn" data-mt-show="' + esc(p.name) + '">Lihat semua ' + list.length + ' meeting</button>' : '') +
+      '</div>';
+  }
+
+  // ───────────── views (menu) ─────────────
+  function setView(view, opts) {
+    view = view === 'meetings' ? 'meetings' : 'dashboard';
+    M.view = view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* ignore */ }
+    $$('#mainNav .nav-item').forEach(function (b) {
+      var on = b.dataset.view === view;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
+    var show = view === 'meetings' ? $('#meetingsView') : $('#app');
+    var hide = view === 'meetings' ? $('#app') : $('#meetingsView');
+    hide.hidden = true;
+    show.hidden = false;
+    show.classList.remove('view-enter');
+    void show.offsetWidth;
+    show.classList.add('view-enter');
+    if (!(opts && opts.keepScroll)) window.scrollTo(0, 0);
+    if (view === 'meetings' && !M.loaded) load();
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('#mainNav .nav-item'))) return setView(el.dataset.view);
+    if ((el = t.closest('#newMeetingBtn'))) return openForm(null);
+    if ((el = t.closest('[data-mt-status]'))) { M.filter.status = el.dataset.mtStatus; return renderAll(); }
+    if ((el = t.closest('[data-mt-tick]'))) return tick(el);
+    if ((el = t.closest('[data-mt-edit]'))) {
+      var m = M.meetings.filter(function (x) { return x.id === el.dataset.mtEdit; })[0];
+      return m && openForm(m);
+    }
+    if ((el = t.closest('[data-mt-del]'))) return remove(el.dataset.mtDel);
+    if ((el = t.closest('[data-new-meeting-for]'))) {
+      var p = A.state.byId[+el.dataset.newMeetingFor];
+      return p && openForm(null, p);
+    }
+    if ((el = t.closest('[data-mt-show]'))) {
+      $('#modalWrap').classList.remove('open');
+      A.updateLock();
+      M.filter = { status: 'all', category: '', coach: '', q: el.dataset.mtShow };
+      $('#mtSearch').value = el.dataset.mtShow;
+      setView('meetings');
+      return renderAll();
+    }
+    // form
+    if (!M.form) return;
+    if ((el = t.closest('[data-mt-close]'))) return closeForm(false);
+    if ((el = t.closest('#mtSave'))) return save();
+    if ((el = t.closest('[data-pick]'))) {
+      M.form.people.push(el.dataset.pick);
+      M.form.pick = '';
+      M.form.hideList = true; // keep typing focus, but don't cover the fields below
+      renderForm();
+      $('#mtPick').focus();
+      return;
+    }
+    if ((el = t.closest('#mtPick'))) { M.form.hideList = false; return renderPickList(); }
+    if ((el = t.closest('[data-unpick]'))) { M.form.people.splice(+el.dataset.unpick, 1); return renderForm(); }
+    if ((el = t.closest('[data-cat]'))) {
+      M.form.category = el.dataset.cat;
+      $$('#mtModal [data-cat]').forEach(function (b) { b.classList.toggle('active', b.dataset.cat === M.form.category); });
+      return updateFormUi(false);
+    }
+    if ((el = t.closest('[data-add-task]'))) {
+      M.form.tasks.push({ text: '', deadline: '', done: false });
+      $('#mtTasks').innerHTML = taskRows();
+      $$('#mtTasks .t-in').pop().focus();
+      return;
+    }
+    if ((el = t.closest('[data-task-remove]'))) {
+      M.form.tasks.splice(+el.dataset.taskRemove, 1);
+      $('#mtTasks').innerHTML = taskRows();
+      return;
+    }
+    if ((el = t.closest('[data-task-done]'))) {
+      var task = M.form.tasks[+el.dataset.taskDone];
+      task.done = !task.done;
+      el.classList.toggle('on', task.done);
+      el.setAttribute('aria-pressed', String(task.done));
+      return;
+    }
+    if (!t.closest('.picker')) { var pl = $('#mtPickList'); if (pl) pl.classList.remove('open'); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'mtSearch') { M.filter.q = t.value; return renderList(); }
+    if (!M.form) return;
+    if (t.id === 'mtPick') { M.form.pick = t.value; M.form.hideList = false; return renderPickList(); }
+    if (t.id === 'mtDate') { M.form.date = t.value; return updateFormUi(false); }
+    if (t.id === 'mtPurpose') { M.form.purpose = t.value; return; }
+    if (t.dataset.taskText != null) { M.form.tasks[+t.dataset.taskText].text = t.value; return; }
+    if (t.dataset.taskDeadline != null) { M.form.tasks[+t.dataset.taskDeadline].deadline = t.value; return; }
+  });
+
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'mtCategory') { M.filter.category = e.target.value; renderAll(); }
+    if (e.target.id === 'mtCoach') { M.filter.coach = e.target.value; renderAll(); }
+  });
+
+  document.addEventListener('focusin', function (e) {
+    if (e.target.id === 'mtPick') renderPickList();
+  });
+
+  // Escape / Enter inside the meeting form win over the dashboard's shortcuts.
+  document.addEventListener('keydown', function (e) {
+    if (!M.form) return;
+    if (e.key === 'Escape') { e.stopPropagation(); closeForm(false); return; }
+    if (e.key === 'Enter' && e.target.id === 'mtPick') {
+      e.preventDefault();
+      var first = $('#mtPickList.open [data-pick]');
+      if (first) first.click();
+    } else if (e.key === 'Backspace' && e.target.id === 'mtPick' && !e.target.value && M.form.people.length) {
+      M.form.people.pop();
+      renderForm();
+      $('#mtPick').focus();
+    }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGMeetings = {
+    /** Called after each dashboard load: (re)load meetings so profiles and the badge are current. */
+    onDashboard: function () {
+      if (!M.restored) {
+        M.restored = true;
+        var v = 'dashboard';
+        try { v = localStorage.getItem(VIEW_KEY) || 'dashboard'; } catch (e) { /* ignore */ }
+        setView(v, { keepScroll: true });
+      }
+      load(); // keeps the current list on screen until the fresh one arrives
+    },
+    reset: function () {
+      M.meetings = []; M.loaded = false; M.loading = false; M.restored = false;
+      M.filter = { status: 'open', category: '', coach: '', q: '' };
+      if (M.form) closeForm(true);
+      $('#mtSearch').value = '';
+      $('#navBadge').hidden = true;
+      $('#mtList').innerHTML = '';
+    },
+    personSection: personSection,
+  };
+})();
+</script>
