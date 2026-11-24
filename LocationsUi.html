@@ -409,6 +409,8 @@
   }, true);
 
   // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.locations = function () { window.AOGLocations.onShow(); };
   window.AOGLocations = {
     onDashboard: function () { if (S.loaded) load(); },
     onShow: function () {

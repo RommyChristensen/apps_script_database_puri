@@ -17,8 +17,10 @@
     cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   };
   var VIEW_KEY = 'aogpuri.view';
-  /** Menu items → the <main> they show. */
-  var VIEWS = { dashboard: '#app', meetings: '#meetingsView', ldp: '#ldpView', locations: '#locView' };
+  /** Each page is a <main data-view="…"> in Index.html, so a new menu item needs no change here. */
+  function viewEl(name) { return document.querySelector('main[data-view="' + name + '"]'); }
+  /** Pages can register a function to run when they are shown: AOGViews.locations = fn. */
+  window.AOGViews = window.AOGViews || {};
 
   var M = {
     meetings: [], categories: [], loaded: false, loading: false,
@@ -440,7 +442,7 @@
 
   // ───────────── views (menu) ─────────────
   function setView(view, opts) {
-    if (!VIEWS[view]) view = 'dashboard';
+    if (!viewEl(view)) view = 'dashboard';
     M.view = view;
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* ignore */ }
     $$('#mainNav .nav-item').forEach(function (b) {
@@ -448,15 +450,14 @@
       b.classList.toggle('active', on);
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    var show = $(VIEWS[view]);
-    Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).hidden = k !== view; });
+    var show = viewEl(view);
+    $$('main[data-view]').forEach(function (el) { el.hidden = el !== show; });
     show.classList.remove('view-enter');
     void show.offsetWidth;
     show.classList.add('view-enter');
     if (!(opts && opts.keepScroll)) window.scrollTo(0, 0);
     if (view === 'meetings' && !M.loaded) load();
-    if (view === 'ldp' && window.AOGLdp) window.AOGLdp.onShow();
-    if (view === 'locations' && window.AOGLocations) window.AOGLocations.onShow();
+    if (typeof window.AOGViews[view] === 'function') window.AOGViews[view]();
   }
 
   // ───────────── events ─────────────

@@ -424,6 +424,8 @@
   }, true);
 
   // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.ldp = function () { window.AOGLdp.onShow(); };
   window.AOGLdp = {
     onDashboard: function () { load(); },
     onShow: function () { if (!L.loaded) load(); renderAll(); },
