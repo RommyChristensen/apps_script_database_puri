@@ -69,6 +69,10 @@
           <span>LDP</span>
           <span class="nav-badge" id="ldpBadge" hidden></span>
         </button>
+        <button class="nav-item" data-view="locations">
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+          <span>Lokasi</span>
+        </button>
       </nav>
 
       <div class="search" id="searchWrap">
@@ -194,6 +198,39 @@
       <div id="ldpList" class="ldp-list"></div>
     </main>
 
+    <!-- Lokasi -->
+    <main id="locView" class="meetings-view loc-view" hidden>
+      <section class="mt-head">
+        <div>
+          <div class="eyebrow-soft">Menu · Lokasi</div>
+          <h1 class="page-title">Lokasi CG</h1>
+          <p class="muted page-sub">Tempat setiap CG berkumpul. Klik pin untuk membuka Google Maps atau melihat rute.</p>
+        </div>
+      </section>
+      <div class="mt-stats" id="locStats"></div>
+      <div class="loc-layout">
+        <div class="loc-map-card panel">
+          <div class="loc-tools">
+            <div class="chips" id="locCoachChips"></div>
+            <button class="chip" id="locHomesToggle" title="Tampilkan area tempat tinggal jemaat">
+              <svg class="i" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>Domisili jemaat
+            </button>
+          </div>
+          <div class="loc-map-box">
+            <div id="locMap" class="loc-map"></div>
+            <div class="loc-map-msg" id="locMapMsg" hidden></div>
+          </div>
+        </div>
+        <aside class="loc-side panel">
+          <div class="mt-search">
+            <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="locSearch" type="search" placeholder="Cari CG, CGL, tempat…" autocomplete="off">
+          </div>
+          <div id="locList" class="loc-list"></div>
+        </aside>
+      </div>
+    </main>
+
     <!-- Drawer -->
     <div class="scrim" id="drawerScrim"></div>
     <aside class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="true">
@@ -218,10 +255,17 @@
       <div class="modal mt-modal" role="dialog" aria-modal="true" id="ldpModal"></div>
     </div>
 
+    <!-- Lokasi edit -->
+    <div class="modal-wrap mt-wrap" id="locModalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-loc-close></div>
+      <div class="modal mt-modal" role="dialog" aria-modal="true" id="locModal"></div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <?!= include('JavaScript'); ?>
     <?!= include('MeetingsUi'); ?>
     <?!= include('LdpUi'); ?>
+    <?!= include('LocationsUi'); ?>
   </body>
 </html>

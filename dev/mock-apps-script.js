@@ -75,6 +75,11 @@
       remove: function (k) { delete cacheStore[k]; },
     };
     var uuidCounter = 0;
+    var propStore = {};
+    var props = {
+      getProperty: function (k) { return Object.prototype.hasOwnProperty.call(propStore, k) ? propStore[k] : null; },
+      setProperty: function (k, v) { propStore[k] = String(v); return props; },
+    };
     var ss = {
       getSheets: function () { return sheets.slice(); },
       getSheetByName: function (n) { return sheets.filter(function (s) { return s.getName() === n; })[0] || null; },
@@ -86,7 +91,7 @@
       getUrl: function () { return 'https://docs.google.com/spreadsheets/d/demo/edit'; },
     };
 
-    return {
+    var api = {
       writes: writes,
       spreadsheet: ss,
       SpreadsheetApp: {
@@ -98,6 +103,38 @@
       Session: { getActiveUser: function () { return { getEmail: function () { return opts.email || 'preview@example.com'; } }; } },
       HtmlService: {},
       cacheStore: cacheStore,
+      geocodeCalls: [],
+      fetchCalls: [],
+      PropertiesService: { getScriptProperties: function () { return props; } },
+      // Fake geocoder: opts.geocode maps a lower-cased query to {lat, lng}; anything else is "not found".
+      Maps: {
+        newGeocoder: function () {
+          var g = {
+            setRegion: function () { return g; }, setLanguage: function () { return g; }, setBounds: function () { return g; },
+            geocode: function (q) {
+              api.geocodeCalls.push(q);
+              var key = String(q).toLowerCase().replace(/, indonesia$/, '');
+              var hit = (opts.geocode || {})[key];
+              if (!hit && opts.geocodeAny) {
+                // Preview only: a stable made-up point around West Jakarta for any text.
+                var h = 0;
+                for (var i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+                hit = { lat: -6.24 + (h % 1000) / 1000 * 0.16, lng: 106.66 + ((h >>> 10) % 1000) / 1000 * 0.16 };
+              }
+              return hit ? { status: 'OK', results: [{ geometry: { location: hit } }] } : { status: 'ZERO_RESULTS', results: [] };
+            },
+          };
+          return g;
+        },
+      },
+      // Fake fetch: opts.redirects maps a URL to the Location it redirects to.
+      UrlFetchApp: {
+        fetch: function (url) {
+          api.fetchCalls.push(url);
+          var loc = (opts.redirects || {})[url];
+          return { getHeaders: function () { return loc ? { Location: loc } : {}; } };
+        },
+      },
       CacheService: { getScriptCache: function () { return cache; } },
       Utilities: {
         DigestAlgorithm: { SHA_256: 'SHA_256' },
@@ -121,6 +158,7 @@
         },
       },
     };
+    return api;
   }
 
   /** Plain SHA-256 over a binary string, returning byte values 0..255. */

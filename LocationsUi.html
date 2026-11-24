@@ -1,0 +1,429 @@
+<script>
+/* "Lokasi" menu: CG meeting places on a map (Leaflet + OpenStreetMap/CARTO
+   tiles, no API key), with "Buka di Google Maps" / "Rute" links, a list of
+   CGs without a location and online CGs, a domisili layer, and an edit form
+   (paste a Google Maps link, type an address, or click the map).
+   Talks to Locations.gs through AOG.api. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, esc = A.esc;
+
+  var LEAFLET = {
+    css: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css',
+    js: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js',
+  };
+  var TILES = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  var ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  var CENTER = [-6.17, 106.73]; // Puri, Jakarta Barat
+  var COLORS = ['#2563eb', '#0ea5e9', '#7c3aed', '#0d9488', '#db2777', '#ea580c', '#4f46e5', '#16a34a'];
+
+  var IC = {
+    pin: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    route: '<svg class="i" viewBox="0 0 24 24"><path d="M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/><path d="M6 15V9a4 4 0 0 1 4-4h4M18 9v6a4 4 0 0 1-4 4h-4"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    wifi: '<svg class="i" viewBox="0 0 24 24"><path d="M4 9.5a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 16.5a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".8"/></svg>',
+    search: '<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    home: '<svg class="i" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>',
+  };
+
+  var S = {
+    cgs: [], homes: [], unplaced: 0, loaded: false, loading: false,
+    map: null, markers: {}, cgLayer: null, homeLayer: null, showHomes: false, fitted: false,
+    filter: { coach: '', q: '' }, form: null, focusCode: '',
+  };
+
+  // ───────────── Leaflet loading ─────────────
+  var leafletPromise = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve(window.L);
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise(function (resolve, reject) {
+      var css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = LEAFLET.css;
+      document.head.appendChild(css);
+      var js = document.createElement('script');
+      js.src = LEAFLET.js;
+      js.onload = function () { resolve(window.L); };
+      js.onerror = function () { leafletPromise = null; reject(new Error('Peta tidak bisa dimuat. Cek koneksi internet.')); };
+      document.head.appendChild(js);
+    });
+    return leafletPromise;
+  }
+
+  // ───────────── helpers ─────────────
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function placed(c) { return c.lat != null && c.lng != null; }
+  function coachList() {
+    var seen = {}, out = [];
+    S.cgs.forEach(function (c) { if (!seen[c.coach]) { seen[c.coach] = 1; out.push(c.coach); } });
+    return out;
+  }
+  function colorOf(coach) { var i = coachList().indexOf(coach); return COLORS[(i < 0 ? 0 : i) % COLORS.length]; }
+  /** Always the saved pin (the pasted link may point elsewhere if the pin was moved afterwards). */
+  function gmapsUrl(c) {
+    return 'https://www.google.com/maps/search/?api=1&query=' + c.lat + ',' + c.lng;
+  }
+  function routeUrl(c) { return 'https://www.google.com/maps/dir/?api=1&destination=' + c.lat + ',' + c.lng; }
+  function visible(c) {
+    if (S.filter.coach && c.coach !== S.filter.coach) return false;
+    var q = norm(S.filter.q);
+    return !q || norm([c.code, c.coach, c.cgl, c.place, c.address, c.area].join(' ')).indexOf(q) >= 0;
+  }
+
+  // ───────────── data ─────────────
+  function load() {
+    if (S.loading || !A.state.token) return;
+    S.loading = true;
+    A.api('getCgLocations').then(function (res) {
+      S.loading = false;
+      setData(res);
+    }, function (err) {
+      S.loading = false;
+      if (err.isAuth) return;
+      $('#locList').innerHTML = '<div class="error-card">Lokasi tidak bisa dimuat.<br><span class="small">' + esc(A.errText(err)) + '</span></div>';
+    });
+  }
+
+  function setData(res) {
+    S.cgs = res.cgs || [];
+    S.homes = res.homes || [];
+    S.unplaced = res.unplaced || 0;
+    S.loaded = true;
+    renderAll();
+  }
+
+  function renderAll() {
+    renderStats();
+    renderFilters();
+    renderList();
+    renderMap();
+  }
+
+  function renderStats() {
+    var onMap = S.cgs.filter(function (c) { return placed(c); }).length;
+    var online = S.cgs.filter(function (c) { return c.online && !placed(c); }).length;
+    var missing = S.cgs.filter(function (c) { return !placed(c) && !c.online; }).length;
+    var stats = [
+      { n: onMap, label: 'CG di peta', cls: 'is-ok' },
+      { n: missing, label: 'Belum ada lokasi', cls: missing ? 'is-warn' : '' },
+      { n: online, label: 'CG online', cls: '' },
+      { n: S.homes.length, label: 'Area domisili jemaat', cls: '' },
+    ];
+    $('#locStats').innerHTML = stats.map(function (s, i) {
+      return '<div class="mt-stat ' + s.cls + '" style="animation-delay:' + i * 50 + 'ms"><b>' + (S.loaded ? s.n : '–') + '</b><span>' + s.label + '</span></div>';
+    }).join('');
+  }
+
+  function renderFilters() {
+    var coaches = coachList();
+    $('#locCoachChips').innerHTML = [''].concat(coaches).map(function (c) {
+      return '<button class="chip' + (S.filter.coach === c ? ' active' : '') + '" data-loc-coach="' + esc(c) + '">' +
+        (c ? '<i class="coach-dot" style="background:' + colorOf(c) + '"></i>' + esc(c) : 'Semua coach') + '</button>';
+    }).join('');
+    $('#locHomesToggle').classList.toggle('active', S.showHomes);
+  }
+
+  function listItem(c) {
+    var meta = [c.time, c.area].filter(Boolean).join(' · ');
+    return '<button class="loc-item' + (S.focusCode === c.code ? ' focus' : '') + '" data-loc-focus="' + esc(c.code) + '">' +
+      '<span class="loc-badge" style="--c:' + colorOf(c.coach) + '">' + esc(c.code) + '</span>' +
+      '<span class="pr-main"><span class="pr-name">' + esc(c.place || (c.cgl ? 'CGL ' + c.cgl : c.code)) + '</span>' +
+      '<span class="pr-sub">' + esc(['Coach ' + c.coach, meta].filter(Boolean).join(' · ')) + '</span></span>' +
+      (placed(c) ? '<span class="loc-go">' + IC.pin + '</span>'
+        : c.canEdit ? '<span class="loc-set">Set lokasi</span>' : '<span class="loc-none">–</span>') +
+      '</button>';
+  }
+
+  function renderList() {
+    var box = $('#locList');
+    if (!S.loaded) { box.innerHTML = '<div class="loc-item skeleton" style="height:56px"></div><div class="loc-item skeleton" style="height:56px"></div>'; return; }
+    var list = S.cgs.filter(visible);
+    var groups = [
+      ['Di peta', list.filter(function (c) { return placed(c); })],
+      ['Belum ada lokasi', list.filter(function (c) { return !placed(c) && !c.online; })],
+      ['CG online', list.filter(function (c) { return !placed(c) && c.online; })],
+    ];
+    box.innerHTML = groups.map(function (g) {
+      if (!g[1].length) return '';
+      return '<div class="loc-group"><div class="loc-group-title">' + esc(g[0]) + ' <span>' + g[1].length + '</span></div>' +
+        g[1].map(listItem).join('') + '</div>';
+    }).join('') || '<div class="sr-empty">Tidak ada CG yang cocok.</div>';
+  }
+
+  // ───────────── map ─────────────
+  function popupHtml(c) {
+    return '<div class="loc-pop">' +
+      '<div class="loc-pop-head"><span class="loc-badge" style="--c:' + colorOf(c.coach) + '">' + esc(c.code) + '</span>' +
+      '<span class="muted small">Coach ' + esc(c.coach) + '</span></div>' +
+      (c.place ? '<b>' + esc(c.place) + '</b>' : '') +
+      (c.address ? '<div class="small">' + esc(c.address) + '</div>' : '') +
+      '<div class="small muted">' + esc([c.cgl && 'CGL ' + c.cgl, c.time, c.mode, c.size + ' orang'].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="loc-pop-actions">' +
+      '<a class="btn primary sm" href="' + esc(gmapsUrl(c)) + '" target="_blank" rel="noopener">' + IC.pin + 'Buka di Google Maps</a>' +
+      '<a class="btn sm" href="' + esc(routeUrl(c)) + '" target="_blank" rel="noopener">' + IC.route + 'Rute</a>' +
+      (c.canEdit ? '<button class="btn sm" data-loc-edit="' + esc(c.code) + '">' + IC.edit + 'Ubah</button>' : '') +
+      '</div></div>';
+  }
+
+  function pinIcon(c) {
+    return window.L.divIcon({
+      className: 'loc-pin-wrap',
+      html: '<div class="loc-pin" style="--c:' + colorOf(c.coach) + '"><span>' + esc(c.code.replace(/^(AOG|TEEN)\s+/, function (m, k) { return k === 'TEEN' ? 'T' : ''; })) + '</span></div>',
+      iconSize: [34, 42], iconAnchor: [17, 42], popupAnchor: [0, -38],
+    });
+  }
+
+  function ensureMap() {
+    if (S.map) return Promise.resolve(S.map);
+    return loadLeaflet().then(function (L) {
+      if (S.map) return S.map;
+      S.map = L.map('locMap', { zoomControl: true, scrollWheelZoom: true }).setView(CENTER, 12);
+      L.tileLayer(TILES, { attribution: ATTRIBUTION, subdomains: 'abcd', maxZoom: 20 }).addTo(S.map);
+      S.homeLayer = L.layerGroup();
+      S.cgLayer = L.layerGroup().addTo(S.map);
+      return S.map;
+    });
+  }
+
+  function renderMap() {
+    if ($('#locView').hidden) return;
+    ensureMap().then(function (map) {
+      var L = window.L;
+      map.invalidateSize();
+      S.cgLayer.clearLayers();
+      S.markers = {};
+      var pts = [];
+      S.cgs.filter(function (c) { return placed(c) && visible(c); }).forEach(function (c) {
+        var m = L.marker([c.lat, c.lng], { icon: pinIcon(c), title: c.code, riseOnHover: true }).bindPopup(popupHtml(c), { maxWidth: 300 });
+        m.addTo(S.cgLayer);
+        S.markers[c.code] = m;
+        pts.push([c.lat, c.lng]);
+      });
+      S.homeLayer.clearLayers();
+      S.homes.forEach(function (h) {
+        var cgs = Object.keys(h.cgs).map(function (k) { return k + ': ' + h.cgs[k]; }).join(', ');
+        L.circleMarker([h.lat, h.lng], {
+          radius: 6 + Math.sqrt(h.count) * 4, color: '#0ea5e9', weight: 1.5, fillColor: '#38bdf8', fillOpacity: 0.22,
+        }).bindTooltip('<b>' + esc(h.label) + '</b> · ' + h.count + ' orang<br><span class="small">' + esc(cgs) + '</span>', { sticky: true })
+          .addTo(S.homeLayer);
+      });
+      if (S.showHomes) S.homeLayer.addTo(map); else map.removeLayer(S.homeLayer);
+      if (!S.fitted && pts.length) {
+        S.fitted = true;
+        map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+      }
+      if (S.focusCode && S.markers[S.focusCode]) {
+        var m = S.markers[S.focusCode];
+        map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: 0.6 });
+        m.openPopup();
+      }
+      $('#locMapMsg').hidden = true;
+    }, function (err) {
+      var msg = $('#locMapMsg');
+      msg.hidden = false;
+      msg.textContent = A.errText(err);
+    });
+  }
+
+  function focus(code) {
+    var c = S.cgs.filter(function (x) { return x.code === code; })[0];
+    if (!c) return;
+    if (!placed(c)) { if (c.canEdit) openForm(c); else A.toast('CG ' + c.code + ' belum punya lokasi.'); return; }
+    S.focusCode = code;
+    renderList();
+    renderMap();
+    if (window.innerWidth < 960) $('#locMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // ───────────── edit form ─────────────
+  function openForm(c) {
+    S.form = {
+      c: c, place: c.place, address: c.address, link: c.link,
+      lat: c.lat, lng: c.lng, saving: false, checking: false, msg: '',
+    };
+    renderForm();
+    $('#locModalWrap').classList.add('open');
+    $('#locModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+    loadLeaflet().then(function (L) {
+      setTimeout(function () { initMiniMap(L); }, 320); // after the open animation
+    }, function () { /* the form still works without the mini map */ });
+  }
+
+  function closeForm() {
+    if (!S.form || S.form.saving) return;
+    if (S.form.mini) { S.form.mini.remove(); }
+    S.form = null;
+    $('#locModalWrap').classList.remove('open');
+    $('#locModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  function initMiniMap(L) {
+    var f = S.form;
+    if (!f || !$('#locMini')) return;
+    var start = f.lat != null ? [f.lat, f.lng] : CENTER;
+    f.mini = L.map('locMini', { zoomControl: true }).setView(start, f.lat != null ? 16 : 12);
+    L.tileLayer(TILES, { attribution: ATTRIBUTION, subdomains: 'abcd', maxZoom: 20 }).addTo(f.mini);
+    f.mini.on('click', function (e) { setPin(e.latlng.lat, e.latlng.lng, true); });
+    if (f.lat != null) setPin(f.lat, f.lng, false);
+  }
+
+  function setPin(lat, lng, fromMap) {
+    var f = S.form, L = window.L;
+    if (!f) return;
+    f.lat = +(+lat).toFixed(6);
+    f.lng = +(+lng).toFixed(6);
+    if (f.mini && L) {
+      if (!f.pin) {
+        f.pin = L.marker([f.lat, f.lng], { draggable: true, icon: pinIcon(f.c) }).addTo(f.mini);
+        f.pin.on('dragend', function () { var p = f.pin.getLatLng(); setPin(p.lat, p.lng, true); });
+      } else {
+        f.pin.setLatLng([f.lat, f.lng]);
+      }
+      if (!fromMap) f.mini.setView([f.lat, f.lng], Math.max(f.mini.getZoom(), 16));
+    }
+    $('#locCoords').textContent = f.lat + ', ' + f.lng;
+    $('#locCoords').parentNode.hidden = false;
+  }
+
+  function renderForm() {
+    var f = S.form, c = f.c;
+    $('#locModal').innerHTML =
+      '<div class="m-head"><div class="m-head-row">' +
+      '<div class="avatar lg" style="--accent:' + colorOf(c.coach) + '">' + IC.pin + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">Lokasi ' + esc(c.code) + '</div>' +
+      '<div class="m-sub">' + esc(['Coach ' + c.coach, c.cgl && 'CGL ' + c.cgl, c.time].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<button class="close-btn dark" data-loc-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body">' +
+      '<div class="field wide"><label for="locPlace">Nama tempat</label><input id="locPlace" maxlength="120" value="' + esc(f.place) +
+      '" placeholder="mis. Rumah Sherly, Gereja AOG Puri lt. 3"></div>' +
+      '<div class="field wide"><label for="locLink">Link Google Maps</label><div class="loc-input-row">' +
+      '<input id="locLink" maxlength="500" value="' + esc(f.link) + '" placeholder="https://maps.app.goo.gl/…">' +
+      '<button type="button" class="btn sm" data-loc-check="link">' + IC.search + 'Cek</button></div>' +
+      '<div class="hint soft">Di Google Maps: tekan lama titik lokasinya → Bagikan → Salin link, lalu tempel di sini.</div></div>' +
+      '<div class="field wide"><label for="locAddress">Alamat</label><div class="loc-input-row">' +
+      '<input id="locAddress" maxlength="300" value="' + esc(f.address) + '" placeholder="Jalan, nomor, kelurahan, kecamatan">' +
+      '<button type="button" class="btn sm" data-loc-check="address">' + IC.search + 'Cari</button></div></div>' +
+      '<div class="field wide"><label>Pin di peta <span class="h4-hint">klik peta atau geser pin</span></label>' +
+      '<div id="locMini" class="loc-mini"></div>' +
+      '<div class="hint soft" ' + (f.lat == null ? 'hidden' : '') + '>Koordinat: <b id="locCoords">' + (f.lat != null ? f.lat + ', ' + f.lng : '') + '</b></div></div>' +
+      '</div>' +
+      '<div class="m-footer"><span class="ldp-err" id="locErr"></span>' +
+      '<button type="button" class="btn" data-loc-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="locSave"><span class="spin"></span>' + IC.check + '<span id="locSaveLabel">Simpan lokasi</span></button></div>';
+  }
+
+  function check(kind) {
+    var f = S.form;
+    if (!f || f.checking) return;
+    var input = kind === 'link' ? { link: f.link } : { address: f.address };
+    if (!(input.link || input.address)) { $('#locErr').textContent = kind === 'link' ? 'Tempel link dulu.' : 'Isi alamat dulu.'; return; }
+    f.checking = true;
+    $('#locErr').textContent = 'Mencari…';
+    A.api('previewLocation', input).then(function (res) {
+      f.checking = false;
+      if (!res) { $('#locErr').textContent = 'Tidak ketemu. Coba link lain, alamat yang lebih lengkap, atau klik peta.'; return; }
+      $('#locErr').textContent = '';
+      setPin(res.lat, res.lng, false);
+    }, function (err) {
+      f.checking = false;
+      if (!err.isAuth) $('#locErr').textContent = A.errText(err);
+    });
+  }
+
+  function save() {
+    var f = S.form;
+    if (!f || f.saving) return;
+    f.saving = true;
+    $('#locSave').disabled = true;
+    $('#locSave').classList.add('loading');
+    $('#locSaveLabel').textContent = 'Menyimpan…';
+    A.api('setCgLocation', {
+      cg: f.c.code, place: f.place, address: f.address, link: f.link,
+      lat: f.lat, lng: f.lng,
+    }).then(function (res) {
+      f.saving = false;
+      var code = f.c.code;
+      closeForm();
+      setData(res);
+      A.toast('Lokasi ' + code + ' tersimpan 📍');
+      var c = S.cgs.filter(function (x) { return x.code === code; })[0];
+      if (c && placed(c)) focus(code);
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      $('#locSave').disabled = false;
+      $('#locSave').classList.remove('loading');
+      $('#locSaveLabel').textContent = 'Simpan lokasi';
+      $('#locErr').textContent = A.errText(err);
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-loc-coach]'))) { S.filter.coach = el.dataset.locCoach; S.focusCode = ''; return renderAll(); }
+    if ((el = t.closest('#locHomesToggle'))) { S.showHomes = !S.showHomes; return renderAll(); }
+    if ((el = t.closest('[data-loc-focus]'))) return focus(el.dataset.locFocus);
+    if ((el = t.closest('[data-loc-edit]'))) {
+      var c = S.cgs.filter(function (x) { return x.code === el.dataset.locEdit; })[0];
+      return c && openForm(c);
+    }
+    if ((el = t.closest('[data-loc-show]'))) {
+      // from a CG card in the dashboard drawer
+      var code = el.dataset.locShow;
+      var closeDrawerBtn = $('#drawer.open [data-close-drawer]');
+      if (closeDrawerBtn) closeDrawerBtn.click();
+      if (window.AOGMeetings) window.AOGMeetings.setView('locations');
+      S.focusCode = code;
+      if (S.loaded) focus(code);
+      return;
+    }
+    if (!S.form) return;
+    if ((el = t.closest('[data-loc-close]'))) return closeForm();
+    if ((el = t.closest('#locSave'))) return save();
+    if ((el = t.closest('[data-loc-check]'))) return check(el.dataset.locCheck);
+  });
+
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'locSearch') { S.filter.q = t.value; renderList(); renderMap(); return; }
+    if (!S.form) return;
+    if (t.id === 'locPlace') S.form.place = t.value;
+    if (t.id === 'locAddress') S.form.address = t.value;
+    if (t.id === 'locLink') S.form.link = t.value.trim();
+  });
+
+  document.addEventListener('paste', function (e) {
+    // Pasting a Maps link looks it up straight away.
+    if (e.target.id === 'locLink') setTimeout(function () { S.form.link = e.target.value.trim(); check('link'); }, 0);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (S.form && e.key === 'Escape') { e.stopPropagation(); closeForm(); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGLocations = {
+    onDashboard: function () { if (S.loaded) load(); },
+    onShow: function () {
+      renderAll();
+      if (!S.loaded) load();
+      setTimeout(function () { if (S.map) S.map.invalidateSize(); }, 50);
+    },
+    reset: function () {
+      S.cgs = []; S.homes = []; S.loaded = false; S.loading = false; S.fitted = false; S.focusCode = '';
+      S.filter = { coach: '', q: '' };
+      if (S.form) { S.form.saving = false; closeForm(); }
+      if (S.map) { S.cgLayer.clearLayers(); S.homeLayer.clearLayers(); }
+      $('#locSearch').value = '';
+      $('#locList').innerHTML = '';
+    },
+  };
+})();
+</script>

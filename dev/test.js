@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -26,9 +26,10 @@ function boot(values, opts) {
   const ctx = {
     SpreadsheetApp: mocks.SpreadsheetApp, LockService: mocks.LockService, Session: mocks.Session,
     CacheService: mocks.CacheService, Utilities: mocks.Utilities, HtmlService: {}, console,
+    PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -517,6 +518,97 @@ test('LDP access: coaches only for their own people and progress', () => {
   assert.strictEqual(s.raw.getLdpProgress(admin).progress.length, 1);
   assert.throws(() => s.raw.saveLdp(s.token, { id: carla.id, name: 'Someone else', targets: {} }), /sudah berubah/);
   assert.throws(() => s.raw.getLdpProgress('x'), /AUTH:/);
+});
+
+console.log('Locations.gs');
+const GEO = {
+  'jl. puri indah raya no. 1, jakarta': { lat: -6.1885, lng: 106.7338 },
+  'kalideres': { lat: -6.1411, lng: 106.7012 },
+  'kembangan': { lat: -6.1902, lng: 106.7409 },
+};
+function locSetup(as, extra) {
+  const s = boot(clone(base), Object.assign({ accounts: coachAccounts(), as: as || ['angie', 'angie-pass'], geocode: GEO }, extra));
+  const admin = s.raw.login('admin', 'admin-pass').token;
+  const cgsOf = (coach) => s.raw.getCgLocations(admin).cgs.filter((c) => c.coach === coach);
+  const tab = () => s.mocks.spreadsheet.getSheetByName('Lokasi CG');
+  return { s, admin, cgsOf, tab };
+}
+
+test('every CG is listed for every coach; only own CGs are editable', () => {
+  const { s } = locSetup();
+  const res = s.raw.getCgLocations(s.token);
+  const coaches = new Set(res.cgs.map((c) => c.coach));
+  assert.ok(coaches.size === 5, 'coach sees every coach group');
+  assert.ok(res.cgs.every((c) => c.canEdit === (c.coach === 'Angie')));
+  const g = res.cgs[0];
+  assert.ok(g.code && g.size > 0 && g.cgl, 'CG summary has code, size and CGL');
+  assert.ok(!('people' in g), 'no member details in the CG list');
+});
+
+test('setting a location from an address geocodes it and writes the tab (last)', () => {
+  const { s, cgsOf, tab } = locSetup();
+  const cg = cgsOf('Angie')[0];
+  const res = s.raw.setCgLocation(s.token, { cg: cg.code, place: 'Rumah Sherly', address: 'Jl. Puri Indah Raya No. 1, Jakarta' });
+  const got = res.cgs.find((c) => c.code === cg.code);
+  assert.deepStrictEqual([got.lat, got.lng, got.place], [-6.1885, 106.7338, 'Rumah Sherly']);
+  const names = s.mocks.spreadsheet.getSheets().map((t) => t.getName());
+  assert.strictEqual(names[names.length - 1], 'Lokasi CG');
+  assert.deepStrictEqual(clone(tab()._grid[1].slice(0, 8)), [cg.code, 'Angie', 'Rumah Sherly', 'Jl. Puri Indah Raya No. 1, Jakarta', '', '-6.188500', '106.733800', 'angie']);
+  // second save updates the same row
+  s.raw.setCgLocation(s.token, { cg: cg.code, place: 'Gereja', lat: -6.2, lng: 106.75 });
+  assert.strictEqual(tab()._grid.length, 2);
+  assert.strictEqual(tab()._grid[1][2], 'Gereja');
+});
+
+test('coordinates are read from Google Maps links, including maps.app.goo.gl short links', () => {
+  const short = 'https://maps.app.goo.gl/AbCdEf123';
+  const { s, cgsOf } = locSetup(null, { redirects: {
+    [short]: 'https://www.google.com/maps/place/Rumah/@-6.1700000,106.7400000,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d-6.1712345!4d106.7398765',
+  } });
+  const [a, b] = cgsOf('Angie');
+  let res = s.raw.setCgLocation(s.token, { cg: a.code, link: 'https://www.google.com/maps/@-6.15,106.72,15z' });
+  assert.deepStrictEqual([res.cgs.find((c) => c.code === a.code).lat, res.cgs.find((c) => c.code === a.code).lng], [-6.15, 106.72]);
+  res = s.raw.setCgLocation(s.token, { cg: b.code, link: short });
+  const got = res.cgs.find((c) => c.code === b.code);
+  assert.deepStrictEqual([got.lat, got.lng], [-6.171234, 106.739876], 'uses the pin (!3d!4d), not the map centre (stored to 6 decimals)');
+  assert.deepStrictEqual(clone(s.mocks.fetchCalls), [short]);
+  s.raw.setCgLocation(s.token, { cg: b.code, link: short });
+  assert.strictEqual(s.mocks.fetchCalls.length, 1, 'expanded short link is cached');
+});
+
+test('location input is validated and access-checked', () => {
+  const { s, cgsOf, admin } = locSetup();
+  const mine = cgsOf('Angie')[0], other = cgsOf('Carla')[0];
+  assert.throws(() => s.raw.setCgLocation(s.token, { cg: other.code, lat: -6.2, lng: 106.7 }), /coach kamu/);
+  assert.throws(() => s.raw.setCgLocation(s.token, { cg: 'AOG 99', lat: -6.2, lng: 106.7 }), /tidak ditemukan/);
+  assert.throws(() => s.raw.setCgLocation(s.token, { cg: mine.code, link: 'https://evil.example/maps/@-6,106' }), /link Google Maps/);
+  assert.throws(() => s.raw.setCgLocation(s.token, { cg: mine.code, address: 'Tempat yang tidak ada' }), /tidak ketemu/);
+  assert.throws(() => s.raw.getCgLocations('x'), /AUTH:/);
+  // admin can edit any CG
+  const res = s.raw.setCgLocation(admin, { cg: other.code, lat: -6.2, lng: 106.7 });
+  assert.strictEqual(res.cgs.find((c) => c.code === other.code).lat, -6.2);
+});
+
+test('rows typed in the tab with only an address are geocoded once and cached', () => {
+  const { s, cgsOf, tab, admin } = locSetup();
+  const cg = cgsOf('Angie')[0];
+  s.raw.setCgLocation(s.token, { cg: cg.code, lat: -6.2, lng: 106.7 }); // creates the tab
+  tab()._grid[1][5] = ''; tab()._grid[1][6] = ''; tab()._grid[1][3] = 'Kembangan';
+  const before = s.mocks.geocodeCalls.length;
+  const got = () => s.raw.getCgLocations(admin).cgs.find((c) => c.code === cg.code);
+  assert.deepStrictEqual([got().lat, got().lng], [-6.1902, 106.7409]);
+  got(); got();
+  assert.strictEqual(s.mocks.geocodeCalls.filter((q) => /kembangan/i.test(q)).length, 1, 'geocoded only once');
+  assert.ok(s.mocks.geocodeCalls.length >= before);
+});
+
+test('domisili layer only counts people the session may see', () => {
+  const { s, admin } = locSetup();
+  const mine = s.raw.getCgLocations(s.token).homes;
+  const all = s.raw.getCgLocations(admin).homes;
+  const total = (h) => h.reduce((n, x) => n + x.count, 0);
+  assert.ok(mine.length > 0 && total(mine) < total(all));
+  assert.ok(mine.every((h) => typeof h.lat === 'number' && !('names' in h)));
 });
 
 const csv = process.argv[2];

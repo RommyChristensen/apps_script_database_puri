@@ -7,7 +7,12 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   **Authentication** tab and only sees (and can only edit) the people of their own coach group.
   Admin accounts (the team leader) see every coach.
 
-- **Menu**: *Dashboard*, *Pertemuan* and *LDP* (in the topbar on desktop, a bottom tab bar on phones).
+- **Menu**: *Dashboard*, *Pertemuan*, *LDP* and *Lokasi* (in the topbar on desktop, a bottom tab bar on phones).
+- **Lokasi CG**: a map of where every CG meets (OpenStreetMap/CARTO tiles via Leaflet, no API key), one color per
+  coach. Each pin has *Buka di Google Maps* and *Rute* buttons. Coaches see all CGs but set or change only their own
+  CGs' location: paste a Google Maps link, type an address (geocoded automatically), or click the map. Online CGs and
+  CGs without a location are listed separately; the *Domisili jemaat* layer shows how many members live in each area
+  (counts only, and coaches only see their own members).
 - **LDP (Leaders Development Program)**: every person's path Member → Sponsor → CGL → Coach → Team Leader
   with a *target* date and a *realization* date per step. Each month, record the result for the person's
   current step: **Berhasil** fills the realization date and moves POSISI up (Member/Sponsor/CGL);
@@ -38,6 +43,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `MeetingsUi.html` | Menu, Pertemuan page, the form and the Pertemuan section in profiles |
 | `Ldp.gs` | LDP: targets, realization dates and the monthly berhasil/belum updates |
 | `LdpUi.html` | LDP page and the per-person LDP update form |
+| `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
+| `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
 | `appsscript.json` | Manifest: Sheets scope, web app runs as the owner, open to anyone (login required inside) |
 | `dev/build-preview.js` | Builds `dev/preview.html`: the real `Code.gs` running in the browser on a fake sheet |
@@ -47,8 +54,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings` and `Ldp`, plus HTML files named `Index`, `Stylesheet`, `JavaScript`,
-   `MeetingsUi` and `LdpUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp` and `Locations`, plus HTML files named `Index`, `Stylesheet`,
+   `JavaScript`, `MeetingsUi`, `LdpUi` and `LocationsUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -105,6 +112,20 @@ npm i -g @google/clasp && clasp login
 clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboard"
 clasp push && clasp deploy
 ```
+
+## Lokasi CG tab
+
+One row per CG: `NO CG | COACH | NAMA TEMPAT | ALAMAT | LINK MAPS | LATITUDE | LONGITUDE | DIPERBARUI OLEH | DIPERBARUI`.
+You only need an address **or** a Google Maps link; coordinates are filled in automatically:
+
+- **Google Maps link** (best): in Google Maps, long-press the place → *Share* → *Copy link* (`https://maps.app.goo.gl/…`).
+  The app reads the pin's coordinates from the link (short links are expanded once and cached).
+- **Address**: geocoded with Apps Script's built-in Maps service (no API key, no billing), biased to Greater Jakarta,
+  and cached in Script Properties, so each address is looked up only once.
+- **Pin**: in the app you can also click the map or drag the pin for an exact spot.
+
+A CG whose `STATUS CG` is *Online* and has no place is listed under *CG online* instead of on the map.
+The map tiles come from CARTO (© OpenStreetMap contributors), free for this kind of low-volume use.
 
 ## LDP columns and the LDP Progress tab
 
@@ -178,6 +199,7 @@ Rows without a name (like the summary block at the bottom) are skipped.
 ## Local preview
 ```bash
 node dev/build-preview.js            # demo data (fake)
+# Offline? LEAFLET_DIR=path/to/leaflet/dist node dev/build-preview.js   (serves Leaflet from disk)
 node dev/build-preview.js export.csv # CSV of the database tab (stays local, git-ignored)
 # open dev/preview.html in a browser. Edits also work there (saved to a fake in-memory sheet)
 

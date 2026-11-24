@@ -18,7 +18,7 @@
   };
   var VIEW_KEY = 'aogpuri.view';
   /** Menu items → the <main> they show. */
-  var VIEWS = { dashboard: '#app', meetings: '#meetingsView', ldp: '#ldpView' };
+  var VIEWS = { dashboard: '#app', meetings: '#meetingsView', ldp: '#ldpView', locations: '#locView' };
 
   var M = {
     meetings: [], categories: [], loaded: false, loading: false,
@@ -456,6 +456,7 @@
     if (!(opts && opts.keepScroll)) window.scrollTo(0, 0);
     if (view === 'meetings' && !M.loaded) load();
     if (view === 'ldp' && window.AOGLdp) window.AOGLdp.onShow();
+    if (view === 'locations' && window.AOGLocations) window.AOGLocations.onShow();
   }
 
   // ───────────── events ─────────────

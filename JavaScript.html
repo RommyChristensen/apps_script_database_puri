@@ -172,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -216,6 +216,7 @@
     renderGaps();
     if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
     if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
+    if (!quiet && window.AOGLocations) window.AOGLocations.onDashboard();
     var when = new Date(data.generatedAt);
     $('#foot').textContent = 'Sumber: tab "' + data.sheetName + '" · diperbarui ' +
       when.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
@@ -449,6 +450,7 @@
       if (g.area) meta.push('<span>' + ICON.pin + esc(g.area) + '</span>');
       if (g.mode) meta.push('<span>' + ICON.wifi + esc(g.mode) + '</span>');
       meta.push('<span>' + ICON.users + g.people.length + ' orang · ' + g.active + ' aktif</span>');
+      if (window.AOGLocations && g.code !== 'Tanpa CG') meta.push('<button class="link-btn cg-map-link" data-loc-show="' + esc(g.code) + '">' + ICON.pin + 'Peta</button>');
       if (g.attendance != null) meta.push('<span>' + ICON.check + 'rata-rata hadir ' + g.attendance + '%</span>');
       return '<div class="cg-card" style="animation-delay:' + (i * 50) + 'ms"><div class="cg-top">' +
         '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0">' +
@@ -964,6 +966,7 @@
     $('#coachGrid').innerHTML = '';
     if (window.AOGMeetings) window.AOGMeetings.reset();
     if (window.AOGLdp) window.AOGLdp.reset();
+    if (window.AOGLocations) window.AOGLocations.reset();
     showLogin(message);
   }
 

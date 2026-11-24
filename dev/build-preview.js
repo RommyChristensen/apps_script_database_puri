@@ -99,17 +99,21 @@ function main() {
     var mocks = createMockServices(${JSON.stringify(values)}, {
       sheetName: ${JSON.stringify(csvArg ? 'CSV preview' : 'Database (demo)')},
       sheets: { Authentication: ${JSON.stringify(accounts)} },
+      geocodeAny: true,
     });
     var SpreadsheetApp = mocks.SpreadsheetApp, LockService = mocks.LockService, Session = mocks.Session,
-      HtmlService = mocks.HtmlService, CacheService = mocks.CacheService, Utilities = mocks.Utilities;
+      HtmlService = mocks.HtmlService, CacheService = mocks.CacheService, Utilities = mocks.Utilities,
+      PropertiesService = mocks.PropertiesService, Maps = mocks.Maps, UrlFetchApp = mocks.UrlFetchApp;
     ${read('Code.gs')}
     ${read('Auth.gs')}
     ${read('Meetings.gs')}
     ${read('Ldp.gs')}
+    ${read('Locations.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
-      getLdpProgress: getLdpProgress, saveLdp: saveLdp };
+      getLdpProgress: getLdpProgress, saveLdp: saveLdp,
+      getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },
@@ -134,6 +138,10 @@ function main() {
   let html = read('Index.html')
     .replace(/<\?!= include\('(\w+)'\); \?>/g, (_, f) => (f === 'JavaScript' ? server : '') + read(f + '.html'))
     .replace(/<\?= appTitle \?>/g, 'AOG Youth Puri');
+  // Offline preview: LEAFLET_DIR=/path/to/leaflet/dist serves Leaflet from disk instead of cdnjs.
+  if (process.env.LEAFLET_DIR) {
+    html = html.split('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/').join('file://' + path.resolve(process.env.LEAFLET_DIR) + '/');
+  }
   fs.writeFileSync(path.join(__dirname, 'preview.html'), html);
   console.log('Wrote dev/preview.html (' + (csvArg ? 'CSV' : 'demo') + ' data, ' + values.length + ' rows)');
   console.log('Demo logins: ' + accounts.slice(1).map((a) => a[0] + '/' + a[1]).join(', '));

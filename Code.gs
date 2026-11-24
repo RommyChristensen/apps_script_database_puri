@@ -23,6 +23,8 @@ const CONFIG = {
   MEETING_SHEET_NAME: 'Log Pertemuan',
   // Monthly LDP (Leaders Development Program) updates (see Ldp.gs). Created automatically if missing.
   LDP_SHEET_NAME: 'LDP Progress',
+  // CG meeting places for the "Lokasi" map (see Locations.gs). Created automatically if missing.
+  LOCATION_SHEET_NAME: 'Lokasi CG',
   TIME_ZONE: 'Asia/Jakarta',
 };
 
