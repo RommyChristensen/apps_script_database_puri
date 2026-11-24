@@ -12,7 +12,23 @@ const CONFIG = {
   // Tab to read. Leave blank to always read the FIRST tab.
   SHEET_NAME: '',
   APP_TITLE: 'AOG Youth Puri',
+  // Every edit made from the dashboard is appended to this tab (created
+  // automatically as the LAST tab). Leave blank to disable the log.
+  LOG_SHEET_NAME: 'Edit Log',
 };
+
+/** Values allowed in the POSISI column when editing. */
+const POSITION_OPTIONS = ['VIP', 'SIMPATISAN', 'MEMBER', 'SPONSOR', 'CGL'];
+
+/** Free-text "Jenjang" fields that can be edited from the dashboard. */
+const EDITABLE_TEXT_FIELDS = [
+  { key: 'targetMember', label: 'Target jadi Member' },
+  { key: 'dateMember', label: 'Tgl jadi Member' },
+  { key: 'targetSponsor', label: 'Target jadi Sponsor' },
+  { key: 'dateSponsor', label: 'Tgl jadi Sponsor' },
+  { key: 'targetCgl', label: 'Target CGL' },
+  { key: 'targetCoach', label: 'Target jadi Coach' },
+];
 
 /** Growth milestones, in the order they appear under 5M / MSJ / CGT. */
 const MILESTONES = [
@@ -81,13 +97,22 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-/** Called from the browser via google.script.run. */
-function getDashboardData() {
-  const ss = CONFIG.SPREADSHEET_ID
+function getSpreadsheet_() {
+  return CONFIG.SPREADSHEET_ID
     ? SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
     : SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function getDatabaseSheet_(ss) {
   const sheet = CONFIG.SHEET_NAME ? ss.getSheetByName(CONFIG.SHEET_NAME) : ss.getSheets()[0];
   if (!sheet) throw new Error('Tab "' + CONFIG.SHEET_NAME + '" not found.');
+  return sheet;
+}
+
+/** Called from the browser via google.script.run. */
+function getDashboardData() {
+  const ss = getSpreadsheet_();
+  const sheet = getDatabaseSheet_(ss);
 
   const parsed = parseDatabase_(sheet.getDataRange().getDisplayValues());
   return {
@@ -97,10 +122,138 @@ function getDashboardData() {
     milestones: MILESTONES.map(function (m) {
       return { key: m.key, label: m.label, group: m.group };
     }),
+    positionOptions: POSITION_OPTIONS,
+    editableFields: EDITABLE_TEXT_FIELDS,
     coaches: parsed.coaches,
     people: parsed.people,
     warnings: parsed.warnings,
   };
+}
+
+// ───────────────────────────── Editing ─────────────────────────────
+
+/**
+ * Saves edits for one person (called from the browser).
+ *
+ * payload = {
+ *   id: <sheet row number>, name: <name shown in the dashboard>,
+ *   milestones: { percayaYesus: true, msj1: false, ... },   // optional
+ *   position: 'MEMBER',                                       // optional
+ *   targetMember, dateMember, targetSponsor, dateSponsor, targetCgl, targetCoach  // optional
+ * }
+ *
+ * Only cells whose value actually changed are written. Returns the refreshed
+ * dashboard data plus a list of what changed.
+ */
+function updatePerson(payload) {
+  if (!payload || !payload.id || !payload.name) throw new Error('Data edit tidak valid.');
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) throw new Error('Sedang ada yang menyimpan. Coba lagi sebentar.');
+  try {
+    const ss = getSpreadsheet_();
+    const sheet = getDatabaseSheet_(ss);
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    const map = mapColumns_(sheet.getRange(1, 1, Math.min(25, lastRow), lastCol).getDisplayValues());
+    const col = map.col;
+
+    const row = Math.floor(Number(payload.id));
+    const firstDataRow = map.headerRow + (map.hasSub ? 2 : 1) + 1; // 1-based
+    if (!(row >= firstDataRow && row <= lastRow)) throw new Error('Baris ' + row + ' di luar area data.');
+
+    const range = sheet.getRange(row, 1, 1, lastCol);
+    const display = range.getDisplayValues()[0];
+    const raw = range.getValues()[0];
+    const formulas = range.getFormulas()[0];
+
+    // Guard against rows that moved since the dashboard was loaded.
+    if (norm_(display[col.name]) !== norm_(payload.name)) {
+      throw new Error('Data di baris ' + row + ' sudah berubah (nama tidak cocok). Refresh dulu lalu coba lagi.');
+    }
+
+    const changes = [];
+    const queue = function (j, value, label, from, to, asText) {
+      if (formulas[j]) throw new Error('Kolom "' + label + '" berisi formula, tidak bisa diedit dari dashboard.');
+      changes.push({ col: j, value: value, label: label, from: from, to: to, asText: asText });
+    };
+
+    // 5M / MSJ / CGT
+    const ms = payload.milestones || {};
+    MILESTONES.forEach(function (m) {
+      if (!Object.prototype.hasOwnProperty.call(ms, m.key) || col[m.key] === undefined) return;
+      const j = col[m.key];
+      const want = ms[m.key] === true;
+      const had = isChecked_(display[j]);
+      if (want === had) return;
+      // Keep the cell's style: real checkboxes stay booleans, text cells use ✔ / -.
+      const value = typeof raw[j] === 'boolean' ? want : (want ? '✔' : '-');
+      queue(j, value, m.label, had ? '✔' : '✗', want ? '✔' : '✗', false);
+    });
+
+    // POSISI
+    if (Object.prototype.hasOwnProperty.call(payload, 'position') && col.position !== undefined) {
+      const want = String(payload.position || '').trim().toUpperCase();
+      if (want && POSITION_OPTIONS.indexOf(want) < 0) throw new Error('Posisi "' + want + '" tidak dikenal.');
+      const had = clean_(display[col.position]).toUpperCase();
+      if (want && want !== had) queue(col.position, want, 'Posisi', had, want, true);
+    }
+
+    // Jenjang text fields
+    const notesInTargetCoach = col.targetCoach !== undefined &&
+      targetCoachHoldsNotes_(col.notes === undefined ? '' : clean_(display[col.notes]), clean_(display[col.targetCoach]));
+    EDITABLE_TEXT_FIELDS.forEach(function (f) {
+      if (!Object.prototype.hasOwnProperty.call(payload, f.key) || col[f.key] === undefined) return;
+      if (f.key === 'targetCoach' && notesInTargetCoach) {
+        if (String(payload.targetCoach || '').trim()) {
+          throw new Error('Kolom TARGET JD COACH di baris ini masih berisi catatan. Rapikan header di sheet dulu.');
+        }
+        return; // never wipe the misplaced notes
+      }
+      const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, 100);
+      const had = clean_(display[col[f.key]]);
+      if (want === had) return;
+      queue(col[f.key], want, f.label, had, want, true);
+    });
+
+    changes.forEach(function (c) {
+      const cell = sheet.getRange(row, c.col + 1);
+      // Store as plain text so "Juni 2026" isn't turned into a date by Sheets.
+      if (c.asText && c.value !== '') cell.setNumberFormat('@');
+      cell.setValue(c.value);
+    });
+    SpreadsheetApp.flush();
+
+    if (changes.length) logEdit_(ss, row, display[col.name], changes);
+
+    return {
+      changes: changes.map(function (c) { return { label: c.label, from: c.from, to: c.to }; }),
+      data: getDashboardData(),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function logEdit_(ss, row, name, changes) {
+  if (!CONFIG.LOG_SHEET_NAME) return;
+  try {
+    let log = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
+    if (!log) {
+      log = ss.insertSheet(CONFIG.LOG_SHEET_NAME, ss.getSheets().length); // keep the database tab first
+      log.appendRow(['Waktu', 'Oleh', 'Baris', 'Nama', 'Perubahan']);
+      log.setFrozenRows(1);
+      log.getRange('A1:E1').setFontWeight('bold');
+    }
+    let who = '';
+    try { who = Session.getActiveUser().getEmail(); } catch (e) { /* not available */ }
+    log.appendRow([
+      new Date(), who || '(tidak diketahui)', row, name,
+      changes.map(function (c) { return c.label + ': ' + (c.from || '—') + ' → ' + (c.to || '—'); }).join('\n'),
+    ]);
+  } catch (e) {
+    console.warn('Edit log failed: ' + e);
+  }
 }
 
 // ───────────────────────────── Parsing ─────────────────────────────
@@ -142,39 +295,12 @@ function isChecked_(v) {
  *   2. Banner rows such as "COACH ANGIE" above each coach's block.
  */
 function parseDatabase_(values) {
-  const warnings = [];
-  let headerRow = -1;
-  for (let i = 0; i < Math.min(values.length, 25); i++) {
-    if (values[i].some(function (c) { return norm_(c) === 'NAMA' || norm_(c) === 'NAME'; })) {
-      headerRow = i;
-      break;
-    }
-  }
-  if (headerRow < 0) throw new Error('Could not find the header row (a cell with "NAMA").');
-
-  const header = values[headerRow].map(norm_);
-  const milestoneHeaders = MILESTONES.map(function (m) { return m.header; });
-  const maybeSub = (values[headerRow + 1] || []).map(norm_);
-  const hasSub = maybeSub.some(function (c) { return milestoneHeaders.indexOf(c) >= 0; });
-  const sub = hasSub ? maybeSub : [];
-
-  // Map columns.
-  const col = {};
-  const extraPhoneCols = [];
-  header.forEach(function (h, j) {
-    const s = sub[j] || '';
-    const mi = milestoneHeaders.indexOf(s);
-    if (mi >= 0) { col[MILESTONES[mi].key] = j; return; }
-    Object.keys(FIELDS).forEach(function (field) {
-      if (FIELDS[field].indexOf(h) < 0) return;
-      if (col[field] === undefined) col[field] = j;
-      else if (field === 'phone') extraPhoneCols.push(j);
-    });
-  });
-  if (col.name === undefined) throw new Error('Column "NAMA" not found.');
-  MILESTONES.forEach(function (m) {
-    if (col[m.key] === undefined) warnings.push('Column "' + m.header + '" not found.');
-  });
+  const map = mapColumns_(values);
+  const warnings = map.warnings;
+  const headerRow = map.headerRow;
+  const hasSub = map.hasSub;
+  const col = map.col;
+  const extraPhoneCols = map.extraPhoneCols;
 
   const get = function (row, field) {
     return col[field] === undefined ? '' : clean_(row[col[field]]);
@@ -226,10 +352,11 @@ function parseDatabase_(values) {
     // Notes sometimes sit one column to the left of KETERANGAN; recover them.
     let notes = get(row, 'notes');
     let targetCoach = get(row, 'targetCoach');
-    if ((!notes || /^\d{1,3}$/.test(notes) || /^january 1900$/i.test(notes)) && looksLikeNote_(targetCoach)) {
+    const targetCoachHoldsNotes = targetCoachHoldsNotes_(notes, targetCoach);
+    if (targetCoachHoldsNotes) {
       notes = targetCoach;
       targetCoach = '';
-    } else if (/^\d{1,3}$/.test(notes) || /^january 1900$/i.test(notes)) {
+    } else if (isNoiseNote_(notes)) {
       notes = '';
     }
 
@@ -275,6 +402,7 @@ function parseDatabase_(values) {
       dateSponsor: get(row, 'dateSponsor'),
       targetCgl: get(row, 'targetCgl'),
       targetCoach: targetCoach,
+      targetCoachHoldsNotes: targetCoachHoldsNotes,
       notes: notes,
       eligibleTl: get(row, 'eligibleTl'),
       eligibleCoach: get(row, 'eligibleCoach'),
@@ -295,6 +423,57 @@ function parseDatabase_(values) {
     }),
     warnings: warnings,
   };
+}
+
+/**
+ * Finds the header row (the one containing "NAMA"), the optional milestone
+ * sub-header row below it, and maps every known field to a 0-based column.
+ */
+function mapColumns_(values) {
+  const warnings = [];
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(values.length, 25); i++) {
+    if (values[i].some(function (c) { return norm_(c) === 'NAMA' || norm_(c) === 'NAME'; })) {
+      headerRow = i;
+      break;
+    }
+  }
+  if (headerRow < 0) throw new Error('Could not find the header row (a cell with "NAMA").');
+
+  const header = values[headerRow].map(norm_);
+  const milestoneHeaders = MILESTONES.map(function (m) { return m.header; });
+  const maybeSub = (values[headerRow + 1] || []).map(norm_);
+  const hasSub = maybeSub.some(function (c) { return milestoneHeaders.indexOf(c) >= 0; });
+  const sub = hasSub ? maybeSub : [];
+
+  // Map columns.
+  const col = {};
+  const extraPhoneCols = [];
+  header.forEach(function (h, j) {
+    const s = sub[j] || '';
+    const mi = milestoneHeaders.indexOf(s);
+    if (mi >= 0) { col[MILESTONES[mi].key] = j; return; }
+    Object.keys(FIELDS).forEach(function (field) {
+      if (FIELDS[field].indexOf(h) < 0) return;
+      if (col[field] === undefined) col[field] = j;
+      else if (field === 'phone') extraPhoneCols.push(j);
+    });
+  });
+  if (col.name === undefined) throw new Error('Column "NAMA" not found.');
+  MILESTONES.forEach(function (m) {
+    if (col[m.key] === undefined) warnings.push('Column "' + m.header + '" not found.');
+  });
+
+  return { headerRow: headerRow, hasSub: hasSub, col: col, extraPhoneCols: extraPhoneCols, warnings: warnings };
+}
+
+function isNoiseNote_(s) {
+  return /^\d{1,3}$/.test(s) || /^january 1900$/i.test(s);
+}
+
+/** True when the TARGET JD COACH cell actually holds the person's notes (shifted header). */
+function targetCoachHoldsNotes_(notes, targetCoach) {
+  return (!notes || isNoiseNote_(notes)) && looksLikeNote_(targetCoach);
 }
 
 function looksLikeNote_(s) {

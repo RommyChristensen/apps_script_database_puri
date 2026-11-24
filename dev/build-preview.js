@@ -1,5 +1,5 @@
 /**
- * Builds dev/preview.html — the web app rendered locally with fake demo data,
+ * Builds dev/preview.html — the web app running locally (real Code.gs on a mock sheet),
  * so the UI can be checked in a browser without deploying.
  *
  *   node dev/build-preview.js            # synthetic demo data
@@ -9,15 +9,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
-
-// Load Code.gs into a sandbox so we reuse the real parser.
-const ctx = {};
-vm.createContext(ctx);
-vm.runInContext(read('Code.gs') + '\nthis.parseDatabase_ = parseDatabase_; this.MILESTONES = MILESTONES;', ctx);
 
 function parseCsv(t) {
   const rows = []; let row = [], f = '', q = false;
@@ -80,19 +74,48 @@ function demoValues() {
   return rows;
 }
 
-const csvArg = process.argv[2];
-const values = csvArg ? parseCsv(fs.readFileSync(csvArg, 'utf8')) : demoValues();
-const parsed = ctx.parseDatabase_(values);
-const data = {
-  generatedAt: new Date().toISOString(),
-  sheetName: csvArg ? 'CSV preview' : 'Database (demo)',
-  spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/demo/edit#gid=0',
-  milestones: ctx.MILESTONES.map((m) => ({ key: m.key, label: m.label, group: m.group })),
-  coaches: parsed.coaches, people: parsed.people, warnings: parsed.warnings,
-};
+function main() {
+  const csvArg = process.argv[2];
+  const values = csvArg ? parseCsv(fs.readFileSync(csvArg, 'utf8')) : demoValues();
 
-let html = read('Index.html')
-  .replace(/<\?!= include\('(\w+)'\); \?>/g, (_, f) => (f === 'JavaScript' ? '<script>window.__DEMO_DATA__ = ' + JSON.stringify(data) + ';</script>\n' : '') + read(f + '.html'))
-  .replace(/<\?= appTitle \?>/g, 'AOG Youth Puri');
-fs.writeFileSync(path.join(__dirname, 'preview.html'), html);
-console.log('Wrote dev/preview.html —', data.coaches.length, 'coaches,', data.people.length, 'people,', data.warnings.length, 'warnings');
+  // The page runs the REAL Code.gs in the browser against an in-memory mock of
+  // SpreadsheetApp, and google.script.run is stubbed to call it with a delay.
+  const server = `
+  <script>${read('dev/mock-apps-script.js')}</script>
+  <script>
+  (function () {
+    var mocks = createMockServices(${JSON.stringify(values)}, { sheetName: ${JSON.stringify(csvArg ? 'CSV preview' : 'Database (demo)')} });
+    var SpreadsheetApp = mocks.SpreadsheetApp, LockService = mocks.LockService, Session = mocks.Session, HtmlService = mocks.HtmlService;
+    ${read('Code.gs')}
+    window.__mock = mocks;
+    var api = { getDashboardData: getDashboardData, updatePerson: updatePerson };
+    function runner(ok, fail) {
+      var r = {
+        withSuccessHandler: function (f) { return runner(f, fail); },
+        withFailureHandler: function (f) { return runner(ok, f); },
+      };
+      Object.keys(api).forEach(function (name) {
+        r[name] = function () {
+          var args = Array.prototype.slice.call(arguments);
+          setTimeout(function () {
+            try { var res = JSON.parse(JSON.stringify(api[name].apply(null, args))); ok && ok(res); }
+            catch (e) { fail && fail(e); }
+          }, window.__mockDelay == null ? 450 : window.__mockDelay);
+        };
+      });
+      return r;
+    }
+    window.google = { script: { run: runner() } };
+  })();
+  </script>
+  `;
+
+  let html = read('Index.html')
+    .replace(/<\?!= include\('(\w+)'\); \?>/g, (_, f) => (f === 'JavaScript' ? server : '') + read(f + '.html'))
+    .replace(/<\?= appTitle \?>/g, 'AOG Youth Puri');
+  fs.writeFileSync(path.join(__dirname, 'preview.html'), html);
+  console.log('Wrote dev/preview.html (' + (csvArg ? 'CSV' : 'demo') + ' data, ' + values.length + ' rows)');
+}
+
+module.exports = { demoValues, parseCsv };
+if (require.main === module) main();

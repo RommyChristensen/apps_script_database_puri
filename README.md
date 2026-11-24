@@ -7,14 +7,18 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 - **Coach drawer** (slides in): tabs for CG (members per group), Jemaat (filter by position/status) and Growth (5M / MSJ / CGT completion, click to see who hasn't finished)
 - **Person modal**: growth journey, path (Member → Sponsor → CGL → Coach), personal info, notes, plus WhatsApp / call / email buttons and a link to the person's row in the sheet
 - **Global search** (press `/`), **Growth Gaps** heatmap and a composition chart per coach
-- Read-only: the dashboard never writes to the spreadsheet
+- **Edit per person**: in the person modal tap **Edit**. You can check or uncheck 5M / MSJ / CGT
+  (tap a chip, or use "Centang semua" for a whole group) and change the *Jenjang*: Posisi
+  (VIP → Simpatisan → Member → Sponsor → CGL) plus target and actual dates for Member, Sponsor, CGL and Coach.
+  The 📅 button fills in the current month. Changes are saved straight to the sheet.
 
 | File | Purpose |
 | --- | --- |
 | `Code.gs` | `doGet`, `getDashboardData`, and the sheet parser (finds columns by header name) |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
 | `appsscript.json` | Manifest: read-only Sheets scope, web app settings |
-| `dev/build-preview.js` | Builds `dev/preview.html` with demo data so you can see the UI locally |
+| `dev/build-preview.js` | Builds `dev/preview.html`: the real `Code.gs` running in the browser on a fake sheet |
+| `dev/mock-apps-script.js`, `dev/test.js` | Mock SpreadsheetApp + tests for the parser and for saving |
 
 ## Deploy (copy and paste, about 5 minutes)
 
@@ -30,6 +34,24 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 > 🔒 Because it runs as the *user accessing*, only people who already have
 > access to the spreadsheet can see the data. Everyone else gets an error card.
 > To give a coach access, share the spreadsheet with them (Viewer is enough).
+
+> ✏️ **Editing** needs **Editor** access to the spreadsheet. A Viewer can still open the dashboard
+> but gets the error "tidak punya akses edit" when saving. Because the app now has write
+> permission, everyone is asked to **authorize again** the first time they open the new version.
+
+### How saving works
+- Only cells that **actually changed** are written. Other columns (including AGE / ELIGIBLE formulas) are never touched.
+- Before writing, the server checks the name in that row still matches. If someone has added or removed
+  rows in the meantime, the save is rejected and you're asked to refresh. Saves also take a lock so two
+  people can't write at the same moment.
+- Checked milestones are written as `✔` and unchecked as `-`, the same as the existing sheet. Cells that are
+  real checkboxes stay as checkboxes. Date and target text is stored as plain text, so "Juni 2026" isn't turned
+  into a date.
+- Cells containing **formulas** are refused, not overwritten.
+- Every save is recorded in the **`Edit Log`** tab (created automatically as the last tab): time, who
+  (email), row, name, and `old → new` for each change. To turn it off, set `CONFIG.LOG_SHEET_NAME = ''`.
+- If a person's `TARGET JD COACH` column still holds notes (the shifted header), that field is locked
+  so the notes can't be wiped.
 
 After you change the code: **Deploy → Manage deployments → ✏️ → Version: New version**
 so the URL stays the same.
@@ -75,5 +97,7 @@ Rows without a name (like the summary block at the bottom) are skipped.
 ```bash
 node dev/build-preview.js            # demo data (fake)
 node dev/build-preview.js export.csv # CSV of the database tab (stays local, git-ignored)
-# open dev/preview.html in a browser
+# open dev/preview.html in a browser. Edits also work there (saved to a fake in-memory sheet)
+
+node dev/test.js                     # tests for the parser and updatePerson
 ```

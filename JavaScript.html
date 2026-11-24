@@ -32,13 +32,32 @@
     mail: '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>',
     sheet: '<svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M4 9h16M4 15h16M10 3v18"/></svg>',
     warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    save: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   };
+  var POSITION_LABEL = { VIP: 'VIP', SIMPATISAN: 'Simpatisan', MEMBER: 'Member', SPONSOR: 'Sponsor', CGL: 'CGL' };
+  var DATE_FIELDS = { dateMember: 1, dateSponsor: 1 };
 
   var state = {
     data: null, coaches: [], byId: {}, people: [],
     drawer: { coach: null, tab: 'cg', pos: 'ALL', status: 'ALL' },
     search: { results: [], active: -1 },
+    edit: null, // { id, draft: { milestones, position, ...fields }, saving }
   };
+
+  /** Promise wrapper around google.script.run. */
+  function callServer(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      if (!(window.google && google.script && google.script.run)) {
+        reject(new Error('google.script.run tidak tersedia.'));
+        return;
+      }
+      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+      runner[fn].apply(runner, args);
+    });
+  }
 
   // ───────────── Helpers ─────────────
   function $(s, root) { return (root || document).querySelector(s); }
@@ -86,12 +105,13 @@
     }
     requestAnimationFrame(tick);
   }
-  function toast(msg) {
+  function toast(msg, isError) {
     var t = $('#toast');
     t.textContent = msg;
+    t.classList.toggle('error', !!isError);
     t.classList.add('show');
     clearTimeout(toast._t);
-    toast._t = setTimeout(function () { t.classList.remove('show'); }, 2400);
+    toast._t = setTimeout(function () { t.classList.remove('show'); }, isError ? 5000 : 2400);
   }
   function stackBar(counts, total) {
     return '<div class="stack">' + POSITIONS.map(function (p, i) {
@@ -108,14 +128,7 @@
   // ───────────── Data ─────────────
   function load(isRefresh) {
     $('#refreshBtn').classList.add('spinning');
-    var done = function (d) { onData(d, isRefresh); };
-    if (window.google && google.script && google.script.run) {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onError).getDashboardData();
-    } else if (window.__DEMO_DATA__) {
-      setTimeout(function () { done(window.__DEMO_DATA__); }, 500);
-    } else {
-      onError(new Error('google.script.run tidak tersedia.'));
-    }
+    callServer('getDashboardData').then(function (d) { onData(d, isRefresh); }, onError);
   }
 
   function onError(err) {
@@ -431,6 +444,8 @@
   function openPerson(id) {
     var p = state.byId[id];
     if (!p) return;
+    if (state.edit && state.edit.id !== id && !confirmDiscard()) return;
+    state.edit = null;
     $('#modal').innerHTML = renderPerson(p);
     $('#modal').scrollTop = 0;
     $('#modalWrap').classList.add('open');
@@ -439,16 +454,207 @@
     updateLock();
   }
   function closeModal() {
+    if (state.edit && state.edit.saving) return;
+    if (state.edit && !confirmDiscard()) return;
+    state.edit = null;
     $('#modalWrap').classList.remove('open');
     $('#modalWrap').setAttribute('aria-hidden', 'true');
     updateLock();
+  }
+  function confirmDiscard() {
+    return !countChanges() || window.confirm('Buang perubahan yang belum disimpan?');
+  }
+
+  // ───────────── Edit mode ─────────────
+  function startEdit(id) {
+    var p = state.byId[id];
+    if (!p) return;
+    var draft = { milestones: {}, position: p.position };
+    state.data.milestones.forEach(function (m) { draft.milestones[m.key] = !!p.milestones[m.key]; });
+    state.data.editableFields.forEach(function (f) { draft[f.key] = p[f.key] || ''; });
+    state.edit = { id: id, draft: draft, saving: false };
+    rerenderModal();
+  }
+  function cancelEdit() {
+    if (!confirmDiscard()) return;
+    state.edit = null;
+    rerenderModal();
+  }
+  function rerenderModal() {
+    var p = state.edit ? state.byId[state.edit.id] : null;
+    var id = p ? p.id : +($('#modal [data-pid]') || {}).dataset.pid;
+    p = p || state.byId[id];
+    if (!p) return;
+    var top = $('#modal').scrollTop;
+    $('#modal').innerHTML = renderPerson(p);
+    $('#modal').scrollTop = state.edit ? 0 : top;
+    if (state.edit) updateEditUi();
+  }
+
+  /** Returns [{label, from, to}] for every field that differs from the sheet. */
+  function diffEdit() {
+    if (!state.edit) return [];
+    var p = state.byId[state.edit.id], d = state.edit.draft, out = [];
+    state.data.milestones.forEach(function (m) {
+      if (!!p.milestones[m.key] !== d.milestones[m.key]) out.push({ key: m.key, ms: true, label: m.label });
+    });
+    if (d.position !== p.position) out.push({ key: 'position', label: 'Posisi' });
+    state.data.editableFields.forEach(function (f) {
+      if ((d[f.key] || '').trim() !== (p[f.key] || '')) out.push({ key: f.key, label: f.label });
+    });
+    return out;
+  }
+  function countChanges() { return diffEdit().length; }
+
+  function updateEditUi() {
+    var n = countChanges();
+    var btn = $('#saveEditBtn');
+    if (!btn) return;
+    btn.disabled = !n || state.edit.saving;
+    $('#saveEditLabel').textContent = state.edit.saving ? 'Menyimpan…' : (n ? 'Simpan ' + n + ' perubahan' : 'Belum ada perubahan');
+    btn.classList.toggle('loading', state.edit.saving);
+    $('#cancelEditBtn').disabled = state.edit.saving;
+    var changed = {};
+    diffEdit().forEach(function (c) { changed[c.key] = 1; });
+    $$('#modal [data-field]').forEach(function (el) {
+      el.closest('.field').classList.toggle('changed', !!changed[el.dataset.field]);
+    });
+    $$('#modal [data-toggle-ms]').forEach(function (el) {
+      el.classList.toggle('changed', !!changed[el.dataset.toggleMs]);
+    });
+  }
+
+  function toggleMilestone(el) {
+    var key = el.dataset.toggleMs;
+    var d = state.edit.draft;
+    d.milestones[key] = !d.milestones[key];
+    paintToggle(el, d.milestones[key]);
+    updateEditUi();
+  }
+  function paintToggle(el, done) {
+    var m = state.data.milestones.filter(function (x) { return x.key === el.dataset.toggleMs; })[0];
+    el.classList.toggle('done', done);
+    el.setAttribute('aria-pressed', done ? 'true' : 'false');
+    el.innerHTML = (done ? ICON.check : '<span class="box"></span>') + esc(m.label);
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  }
+  function toggleGroup(group) {
+    var d = state.edit.draft;
+    var keys = state.data.milestones.filter(function (m) { return m.group === group; }).map(function (m) { return m.key; });
+    var allDone = keys.every(function (k) { return d.milestones[k]; });
+    keys.forEach(function (k) {
+      d.milestones[k] = !allDone;
+      var el = $('#modal [data-toggle-ms="' + k + '"]');
+      if (el) paintToggle(el, !allDone);
+    });
+    var link = $('#modal [data-toggle-group="' + group + '"]');
+    if (link) link.textContent = allDone ? 'Centang semua' : 'Kosongkan';
+    updateEditUi();
+  }
+  function setPosition(pos) {
+    state.edit.draft.position = pos;
+    $$('#modal [data-set-pos]').forEach(function (b) { b.classList.toggle('active', b.dataset.setPos === pos); });
+    updateEditUi();
+  }
+  function fillNow(key) {
+    var v = new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    state.edit.draft[key] = v;
+    var input = $('#modal [data-field="' + key + '"]');
+    if (input) { input.value = v; input.focus(); }
+    updateEditUi();
+  }
+
+  function saveEdit() {
+    var e = state.edit;
+    if (!e || e.saving) return;
+    var changes = diffEdit();
+    if (!changes.length) return;
+    var p = state.byId[e.id];
+    var payload = { id: p.id, name: p.name, milestones: {} };
+    changes.forEach(function (c) {
+      if (c.ms) payload.milestones[c.key] = e.draft.milestones[c.key];
+      else payload[c.key] = (e.draft[c.key] || '').trim();
+    });
+    e.saving = true;
+    updateEditUi();
+    callServer('updatePerson', payload).then(function (res) {
+      state.edit = null;
+      onData(res.data, false);
+      var fresh = state.byId[p.id];
+      if (fresh && $('#modalWrap').classList.contains('open')) {
+        rerenderModal();
+        var m = $('#modal');
+        m.classList.remove('saved-flash');
+        void m.offsetWidth;
+        m.classList.add('saved-flash');
+      }
+      var n = res.changes.length;
+      toast(n ? 'Tersimpan · ' + n + ' perubahan ✨' : 'Tidak ada yang berubah');
+    }, function (err) {
+      e.saving = false;
+      updateEditUi();
+      var msg = (err && err.message) || String(err);
+      if (/permission|izin|access|akses/i.test(msg)) msg = 'Kamu tidak punya akses edit ke spreadsheet ini.';
+      toast('Gagal menyimpan: ' + msg, true);
+    });
+  }
+
+  function renderEditBody(p) {
+    var d = state.edit.draft;
+    var groups = {};
+    state.data.milestones.forEach(function (m) { (groups[m.group] = groups[m.group] || []).push(m); });
+    var journey = Object.keys(groups).map(function (g) {
+      var allDone = groups[g].every(function (m) { return d.milestones[m.key]; });
+      return '<div class="j-group edit"><div class="j-label">' + esc(g) + '</div><div class="j-steps">' +
+        groups[g].map(function (m) {
+          var done = d.milestones[m.key];
+          return '<button type="button" class="step toggle' + (done ? ' done' : '') + '" data-toggle-ms="' + m.key + '" aria-pressed="' + done + '">' +
+            (done ? ICON.check : '<span class="box"></span>') + esc(m.label) + '</button>';
+        }).join('') +
+        '<button type="button" class="link-btn" data-toggle-group="' + esc(g) + '">' + (allDone ? 'Kosongkan' : 'Centang semua') + '</button>' +
+        '</div></div>';
+    }).join('');
+
+    var opts = state.data.positionOptions.slice();
+    if (opts.indexOf(d.position) < 0 && d.position && d.position !== 'UNKNOWN') opts.unshift(d.position);
+    var seg = opts.map(function (o) {
+      return '<button type="button" class="chip' + (d.position === o ? ' active' : '') + '" data-set-pos="' + esc(o) + '">' + esc(POSITION_LABEL[o] || o) + '</button>';
+    }).join('');
+
+    var fields = state.data.editableFields.map(function (f) {
+      var locked = f.key === 'targetCoach' && p.targetCoachHoldsNotes;
+      return '<div class="field' + (locked ? ' locked' : '') + '"><label for="f-' + f.key + '">' + esc(f.label) + '</label>' +
+        '<div class="input-wrap"><input id="f-' + f.key + '" type="text" maxlength="100" data-field="' + f.key + '" value="' + esc(d[f.key]) + '"' +
+        (DATE_FIELDS[f.key] && !locked ? ' class="has-now"' : '') +
+        ' placeholder="mis. Juni 2026" autocomplete="off"' + (locked ? ' disabled' : '') + '>' +
+        (DATE_FIELDS[f.key] && !locked ? '<button type="button" class="now-btn" data-fill-now="' + f.key + '" title="Isi bulan ini">' + ICON.cal + '</button>' : '') +
+        '</div>' +
+        (locked ? '<div class="hint">Kolom ini masih berisi catatan (header bergeser). Rapikan di sheet dulu.</div>' : '') +
+        '</div>';
+    }).join('');
+
+    return '<div class="m-body">' +
+      '<div class="m-section"><h4>Perjalanan Bertumbuh <span class="h4-hint">tap untuk centang</span></h4><div class="journey">' + journey + '</div></div>' +
+      '<div class="m-section"><h4>Jenjang</h4>' +
+      '<div class="field-label">Posisi</div><div class="chips seg">' + seg + '</div>' +
+      '<div class="form-grid">' + fields + '</div></div>' +
+      '</div>' +
+      '<div class="m-footer">' +
+      '<button type="button" class="btn" id="cancelEditBtn" data-cancel-edit>Batal</button>' +
+      '<button type="button" class="btn primary" id="saveEditBtn" data-save-edit disabled>' +
+      '<span class="spin"></span>' + ICON.save + '<span id="saveEditLabel">Belum ada perubahan</span></button>' +
+      '</div>';
   }
 
   function renderPerson(p) {
     var coach = state.coaches.filter(function (c) { return c.key === p.coach; })[0];
     var accent = coach ? coach.accent : ACCENTS[0];
     var wa = waLink(p.phone);
+    var editing = !!(state.edit && state.edit.id === p.id);
     var actions = [];
+    if (!p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
     if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
     if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
@@ -492,20 +698,24 @@
       return '<div class="tl-item' + (x.done ? ' done' : '') + '"><div class="tl-dot"></div><div><div class="tl-title">' + x.t + '</div><div class="tl-sub">' + esc(sub) + '</div></div></div>';
     }).join('');
 
-    return '<div class="m-head"><div class="m-head-row">' +
+    var actionsHtml = editing
+      ? '<div class="edit-banner">' + ICON.edit + 'Mode edit — perubahan langsung tersimpan ke sheet baris ' + p.id + '</div>'
+      : '<div class="m-actions">' + actions.join('') + '</div>';
+    var body = editing ? renderEditBody(p) : '<div class="m-body">' +
+      '<div class="m-section"><h4>Perjalanan Bertumbuh</h4><div class="journey">' + journey + '</div></div>' +
+      (p.notes ? '<div class="m-section"><h4>Catatan</h4><div class="note">' + esc(p.notes) + '</div></div>' : '') +
+      '<div class="m-section"><h4>Jenjang</h4><div class="timeline">' + tl + '</div></div>' +
+      '<div class="m-section"><h4>Data Diri</h4><div class="info-grid">' + info + '</div></div>' +
+      '</div>';
+
+    return '<div class="m-head' + (editing ? ' editing' : '') + '" data-pid="' + p.id + '"><div class="m-head-row">' +
       '<div class="avatar lg" style="--accent:' + accent + '">' + esc(initials(p.name)) + '</div>' +
       '<div style="flex:1;min-width:0"><div class="m-name">' + esc(p.name) + '</div>' +
       '<div class="m-sub">' + esc([p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div>' +
       '<div class="m-badges">' + posBadge(p) + statusBadge(p) + (p.cgStatus ? '<span class="badge line">' + esc(p.cgStatus) + '</span>' : '') +
       '<span class="badge line">Growth ' + msPct(p) + '%</span>' + elig + '</div></div>' +
       '<button class="close-btn dark" data-close-modal aria-label="Tutup">' + ICON.close + '</button></div>' +
-      '<div class="m-actions">' + actions.join('') + '</div></div>' +
-      '<div class="m-body">' +
-      '<div class="m-section"><h4>Perjalanan Bertumbuh</h4><div class="journey">' + journey + '</div></div>' +
-      (p.notes ? '<div class="m-section"><h4>Catatan</h4><div class="note">' + esc(p.notes) + '</div></div>' : '') +
-      '<div class="m-section"><h4>Jenjang</h4><div class="timeline">' + tl + '</div></div>' +
-      '<div class="m-section"><h4>Data Diri</h4><div class="info-grid">' + info + '</div></div>' +
-      '</div>';
+      actionsHtml + '</div>' + body;
   }
 
   // ───────────── Search ─────────────
@@ -538,6 +748,15 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     var el;
+    if ((el = t.closest('[data-start-edit]'))) return startEdit(+el.dataset.startEdit);
+    if (state.edit && !state.edit.saving) {
+      if ((el = t.closest('[data-toggle-ms]'))) return toggleMilestone(el);
+      if ((el = t.closest('[data-toggle-group]'))) return toggleGroup(el.dataset.toggleGroup);
+      if ((el = t.closest('[data-set-pos]'))) return setPosition(el.dataset.setPos);
+      if ((el = t.closest('[data-fill-now]'))) return fillNow(el.dataset.fillNow);
+      if ((el = t.closest('[data-cancel-edit]'))) return cancelEdit();
+      if ((el = t.closest('[data-save-edit]'))) return saveEdit();
+    }
     if ((el = t.closest('[data-close-modal]'))) return closeModal();
     if ((el = t.closest('[data-close-drawer]')) || t.id === 'drawerScrim') return closeDrawer();
     if ((el = t.closest('[data-person]'))) return openPerson(+el.dataset.person);
@@ -561,11 +780,22 @@
     } else if (e.key === 'Escape') { searchInput.blur(); closeSearch(); }
   });
 
+  $('#modal').addEventListener('input', function (e) {
+    var f = e.target.dataset && e.target.dataset.field;
+    if (!f || !state.edit) return;
+    state.edit.draft[f] = e.target.value;
+    updateEditUi();
+  });
+  $('#modal').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target.dataset && e.target.dataset.field) { e.preventDefault(); saveEdit(); }
+  });
+
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      if ($('#modalWrap').classList.contains('open')) closeModal();
+      if (state.edit && $('#modalWrap').classList.contains('open')) { if (!state.edit.saving) cancelEdit(); }
+      else if ($('#modalWrap').classList.contains('open')) closeModal();
       else if ($('#drawer').classList.contains('open')) closeDrawer();
-    } else if (e.key === '/' && document.activeElement !== searchInput) {
+    } else if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
       e.preventDefault();
       searchInput.focus();
     }
