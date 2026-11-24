@@ -1,0 +1,4 @@
+dev/preview.html
+*.csv
+.clasp.json
+node_modules/

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title><?= appTitle ?> · Coach Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <?!= include('Stylesheet'); ?>
+  </head>
+  <body>
+    <div class="bg-blobs" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2l2.6 6.2L21 9l-4.9 4.3L17.5 20 12 16.8 6.5 20l1.4-6.7L3 9l6.4-.8z"/></svg>
+        </div>
+        <div>
+          <div class="brand-title"><?= appTitle ?></div>
+          <div class="brand-sub" id="brandSub">Coach Dashboard</div>
+        </div>
+      </div>
+
+      <div class="search" id="searchWrap">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="searchInput" type="search" placeholder="Cari nama, CG, CGL, kampus…" autocomplete="off" aria-label="Search people">
+        <kbd>/</kbd>
+        <div class="search-results" id="searchResults" role="listbox"></div>
+      </div>
+
+      <div class="top-actions">
+        <a class="icon-btn" id="sheetLink" target="_blank" rel="noopener" title="Open spreadsheet" aria-label="Open spreadsheet">
+          <svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M4 9h16M4 15h16M10 3v18"/></svg>
+        </a>
+        <button class="icon-btn" id="refreshBtn" title="Refresh data" aria-label="Refresh data">
+          <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="app">
+      <!-- Hero -->
+      <section class="hero reveal">
+        <div class="hero-text">
+          <div class="eyebrow" id="heroEyebrow">Loading…</div>
+          <h1>Bertumbuh bersama, <span class="grad">satu CG</span> setiap kali.</h1>
+          <p class="hero-sub" id="heroSub">Ringkasan jemaat per coach, CG, dan perjalanan bertumbuh.</p>
+        </div>
+        <div class="hero-stats" id="heroStats">
+          <div class="stat skeleton"></div><div class="stat skeleton"></div>
+          <div class="stat skeleton"></div><div class="stat skeleton"></div>
+        </div>
+      </section>
+
+      <div class="warnings" id="warnings"></div>
+
+      <!-- Coaches -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Coaches</h2>
+          <span class="pill-soft" id="coachCount"></span>
+        </div>
+        <div class="coach-grid" id="coachGrid">
+          <div class="coach-card skeleton"></div><div class="coach-card skeleton"></div><div class="coach-card skeleton"></div>
+        </div>
+      </section>
+
+      <!-- Insights -->
+      <section class="section grid-2">
+        <div class="panel reveal">
+          <div class="panel-head">
+            <h3>Komposisi per Coach</h3>
+            <div class="legend" id="positionLegend"></div>
+          </div>
+          <div id="compositionChart" class="composition"></div>
+        </div>
+        <div class="panel reveal">
+          <div class="panel-head">
+            <h3>Growth Gaps</h3>
+            <span class="muted small">Jumlah yang <b>belum</b> menyelesaikan</span>
+          </div>
+          <div class="table-scroll"><table class="heat" id="gapTable"></table></div>
+        </div>
+      </section>
+
+      <footer class="foot" id="foot"></footer>
+    </main>
+
+    <!-- Drawer -->
+    <div class="scrim" id="drawerScrim"></div>
+    <aside class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="drawer-inner" id="drawerBody"></div>
+    </aside>
+
+    <!-- Modal -->
+    <div class="modal-wrap" id="modalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-close-modal></div>
+      <div class="modal" role="dialog" aria-modal="true" id="modal"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>

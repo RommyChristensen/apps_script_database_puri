@@ -1,0 +1,579 @@
+<script>
+(function () {
+  'use strict';
+
+  // ───────────── Config ─────────────
+  var POSITIONS = [
+    { key: 'CGL', label: 'CGL', color: '#1e40af' },
+    { key: 'SPONSOR', label: 'Sponsor', color: '#2563eb' },
+    { key: 'MEMBER', label: 'Member', color: '#38bdf8' },
+    { key: 'SIMPATISAN', label: 'Simpatisan', color: '#93c5fd' },
+    { key: 'VIP', label: 'VIP', color: '#a5b4fc' },
+    { key: 'OTHER', label: 'Lainnya', color: '#cbd5e1' },
+  ];
+  var ACCENTS = [
+    'linear-gradient(135deg,#2563eb,#38bdf8)',
+    'linear-gradient(135deg,#1e40af,#60a5fa)',
+    'linear-gradient(135deg,#0284c7,#7dd3fc)',
+    'linear-gradient(135deg,#4f46e5,#38bdf8)',
+    'linear-gradient(135deg,#0b2a6f,#3b82f6)',
+    'linear-gradient(135deg,#0ea5e9,#a5b4fc)',
+  ];
+  var ICON = {
+    arrow: '<svg class="i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    clock: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    pin: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    wifi: '<svg class="i" viewBox="0 0 24 24"><path d="M4 9.5a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 16.5a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".8"/></svg>',
+    users: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
+    wa: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c.3 1.8 2.6 4.2 4.5 4.6l1.3-1.2 1.7.9c-.3 1.2-1.3 1.8-2.4 1.6-2.8-.5-5.5-3.2-6-6-.2-1.1.4-2.1 1.6-2.4l.9 1.7z"/></svg>',
+    phone: '<svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
+    mail: '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>',
+    sheet: '<svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M4 9h16M4 15h16M10 3v18"/></svg>',
+    warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+  };
+
+  var state = {
+    data: null, coaches: [], byId: {}, people: [],
+    drawer: { coach: null, tab: 'cg', pos: 'ALL', status: 'ALL' },
+    search: { results: [], active: -1 },
+  };
+
+  // ───────────── Helpers ─────────────
+  function $(s, root) { return (root || document).querySelector(s); }
+  function $$(s, root) { return Array.prototype.slice.call((root || document).querySelectorAll(s)); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function initials(name) {
+    var parts = String(name || '?').trim().split(/\s+/);
+    return ((parts[0] || '')[0] + (parts.length > 1 ? parts[parts.length - 1][0] : (parts[0] || '')[1] || '')).toUpperCase();
+  }
+  function posKey(p) { return POSITIONS.some(function (x) { return x.key === p; }) ? p : 'OTHER'; }
+  function posInfo(p) { var k = posKey(p); return POSITIONS.filter(function (x) { return x.key === k; })[0]; }
+  function isActive(p) { return /^aktif$/i.test(p.status); }
+  function msDone(p) { return state.data.milestones.filter(function (m) { return p.milestones[m.key]; }).length; }
+  function msPct(p) { return Math.round(msDone(p) / state.data.milestones.length * 100); }
+  function pct(a, b) { return b ? Math.round(a / b * 100) : 0; }
+  function waLink(phone) {
+    var d = String(phone || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d[0] === '0') d = '62' + d.slice(1);
+    else if (d[0] === '8') d = '62' + d;
+    return 'https://wa.me/' + d;
+  }
+  function posBadge(p) {
+    var info = posInfo(p.position);
+    var label = p.position === 'COACH' ? 'Coach' : (info.key === 'OTHER' ? (p.position === 'UNKNOWN' ? '—' : p.position) : info.label);
+    var light = ['MEMBER', 'SIMPATISAN', 'VIP', 'OTHER'].indexOf(info.key) >= 0 && p.position !== 'COACH';
+    var bg = p.position === 'COACH' ? '#0b2a6f' : info.color;
+    return '<span class="badge" style="background:' + bg + ';color:' + (light ? '#0b2a6f' : '#fff') + '">' + esc(label) + '</span>';
+  }
+  function statusBadge(p) {
+    return '<span class="badge ' + (isActive(p) ? 'status-on' : 'status-off') + '">' + esc(p.status) + '</span>';
+  }
+  function countUp(el, to, suffix) {
+    suffix = suffix || '';
+    var start = performance.now(), dur = 900;
+    function tick(now) {
+      var t = Math.min(1, (now - start) / dur);
+      var e = 1 - Math.pow(1 - t, 3);
+      el.textContent = Math.round(to * e) + suffix;
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  function toast(msg) {
+    var t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+  function stackBar(counts, total) {
+    return '<div class="stack">' + POSITIONS.map(function (p, i) {
+      var n = counts[p.key] || 0;
+      if (!n) return '';
+      return '<i title="' + esc(p.label + ': ' + n) + '" style="width:' + (n / total * 100) + '%;background:' + p.color + ';animation-delay:' + (i * 60) + 'ms"></i>';
+    }).join('') + '</div>';
+  }
+  function updateLock() {
+    var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open');
+    document.body.classList.toggle('locked', open);
+  }
+
+  // ───────────── Data ─────────────
+  function load(isRefresh) {
+    $('#refreshBtn').classList.add('spinning');
+    var done = function (d) { onData(d, isRefresh); };
+    if (window.google && google.script && google.script.run) {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onError).getDashboardData();
+    } else if (window.__DEMO_DATA__) {
+      setTimeout(function () { done(window.__DEMO_DATA__); }, 500);
+    } else {
+      onError(new Error('google.script.run tidak tersedia.'));
+    }
+  }
+
+  function onError(err) {
+    $('#refreshBtn').classList.remove('spinning');
+    $('#heroEyebrow').textContent = 'Gagal memuat';
+    $('#heroStats').innerHTML = '';
+    $('#coachGrid').innerHTML =
+      '<div class="error-card" style="grid-column:1/-1"><b>Data tidak bisa dimuat.</b><br><span class="small">' +
+      esc(err && err.message ? err.message : err) +
+      '</span><br><br><span class="small muted">Pastikan akun Google kamu punya akses ke spreadsheet database.</span></div>';
+  }
+
+  function onData(data, isRefresh) {
+    $('#refreshBtn').classList.remove('spinning');
+    state.data = data;
+    state.people = data.people;
+    state.byId = {};
+    data.people.forEach(function (p) { state.byId[p.id] = p; });
+    state.coaches = data.coaches.map(buildCoach);
+
+    $('#sheetLink').href = data.spreadsheetUrl;
+    $('#brandSub').textContent = 'Coach Dashboard · ' + data.sheetName;
+    renderHero();
+    renderWarnings();
+    renderCoaches();
+    renderComposition();
+    renderGaps();
+    var when = new Date(data.generatedAt);
+    $('#foot').textContent = 'Sumber: tab "' + data.sheetName + '" · diperbarui ' +
+      when.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+
+    if (state.drawer.coach) {
+      var still = state.coaches.filter(function (c) { return c.key === state.drawer.coach; })[0];
+      if (still) renderDrawer(); else closeDrawer();
+    }
+    if (isRefresh) toast('Data diperbarui ✨');
+  }
+
+  function buildCoach(c, idx) {
+    var all = state.people.filter(function (p) { return p.coach === c.key; });
+    var members = all.filter(function (p) { return !p.isCoach; });
+    var counts = {};
+    members.forEach(function (p) { var k = posKey(p.position); counts[k] = (counts[k] || 0) + 1; });
+    var cgMap = {};
+    members.forEach(function (p) {
+      var key = p.cg || 'Tanpa CG';
+      (cgMap[key] = cgMap[key] || []).push(p);
+    });
+    var cgs = Object.keys(cgMap).sort(function (a, b) {
+      return a.localeCompare(b, 'id', { numeric: true });
+    }).map(function (code) {
+      var list = cgMap[code];
+      var order = POSITIONS.map(function (x) { return x.key; });
+      list.sort(function (a, b) { return order.indexOf(posKey(a.position)) - order.indexOf(posKey(b.position)) || a.name.localeCompare(b.name); });
+      var leader = list.filter(function (p) { return p.position === 'CGL'; })[0];
+      var first = list[0];
+      return {
+        code: code, people: list,
+        cgl: (leader && leader.name) || first.cgl || '',
+        time: first.cgTime, area: first.cgArea, mode: first.cgStatus,
+        active: list.filter(isActive).length,
+      };
+    });
+    var gaps = {};
+    state.data.milestones.forEach(function (m) {
+      gaps[m.key] = members.filter(function (p) { return !p.milestones[m.key]; });
+    });
+    var avg = members.length ? Math.round(members.reduce(function (s, p) { return s + msPct(p); }, 0) / members.length) : 0;
+    return {
+      key: c.key, name: c.name, fullName: c.fullName,
+      accent: ACCENTS[idx % ACCENTS.length],
+      all: all, members: members, counts: counts, cgs: cgs.filter(function (g) { return g.code !== 'Tanpa CG'; }),
+      cgGroups: cgs, gaps: gaps, avg: avg,
+      active: members.filter(isActive).length,
+      serving: members.filter(function (p) { return !!p.ministry; }).length,
+    };
+  }
+
+  // ───────────── Render: main ─────────────
+  function renderHero() {
+    var members = state.people.filter(function (p) { return !p.isCoach; });
+    var active = members.filter(isActive).length;
+    var cgSet = {};
+    members.forEach(function (p) { if (p.cg) cgSet[p.cg] = 1; });
+    var cgl = members.filter(function (p) { return p.position === 'CGL'; }).length;
+    var sponsor = members.filter(function (p) { return p.position === 'SPONSOR'; }).length;
+    var serving = members.filter(function (p) { return !!p.ministry; }).length;
+
+    $('#heroEyebrow').textContent = 'Live · ' + state.coaches.length + ' coach';
+    var stats = [
+      { n: members.length, label: 'Total Jiwa', hint: active + ' aktif' },
+      { n: Object.keys(cgSet).length, label: 'Connect Group', hint: 'rata-rata ' + (Object.keys(cgSet).length ? Math.round(members.length / Object.keys(cgSet).length) : 0) + ' / CG' },
+      { n: cgl + sponsor, label: 'Leaders', hint: cgl + ' CGL · ' + sponsor + ' Sponsor' },
+      { n: pct(serving, members.length), suffix: '%', label: 'Sudah Melayani', hint: serving + ' orang di pelayanan' },
+    ];
+    $('#heroStats').innerHTML = stats.map(function (s) {
+      return '<div class="stat"><div class="stat-num" data-n="' + s.n + '" data-s="' + (s.suffix || '') + '">0</div>' +
+        '<div class="stat-label">' + esc(s.label) + '</div><div class="stat-hint">' + esc(s.hint) + '</div></div>';
+    }).join('');
+    $$('#heroStats .stat-num').forEach(function (el) { countUp(el, +el.dataset.n, el.dataset.s); });
+  }
+
+  function renderWarnings() {
+    $('#warnings').innerHTML = (state.data.warnings || []).map(function (w) {
+      return '<div class="warn">' + ICON.warn + '<span>' + esc(w) + '</span></div>';
+    }).join('');
+  }
+
+  function renderCoaches() {
+    $('#coachCount').textContent = state.coaches.length + ' coach';
+    $('#coachGrid').innerHTML = state.coaches.map(function (c, i) {
+      var total = c.members.length || 1;
+      return '<button class="coach-card" data-coach="' + esc(c.key) + '" style="--accent:' + c.accent + ';animation-delay:' + (i * 70) + 'ms">' +
+        '<div class="cc-top"><div class="avatar">' + esc(initials(c.fullName || c.name)) + '</div>' +
+        '<div><div class="cc-name">' + esc(c.name) + '</div><div class="cc-full">' + esc(c.fullName || 'Coach') + '</div></div>' +
+        '<div class="cc-arrow">' + ICON.arrow + '</div></div>' +
+        '<div class="cc-stats">' +
+        '<div class="cc-stat"><b>' + c.members.length + '</b><span>Jiwa</span></div>' +
+        '<div class="cc-stat"><b>' + c.cgs.length + '</b><span>CG</span></div>' +
+        '<div class="cc-stat"><b>' + pct(c.active, c.members.length) + '%</b><span>Aktif</span></div>' +
+        '</div>' + stackBar(c.counts, total) +
+        '<div class="cc-foot"><span>' + (c.counts.CGL || 0) + ' CGL · ' + (c.counts.SPONSOR || 0) + ' Sponsor</span><span>Growth ' + c.avg + '%</span></div>' +
+        '</button>';
+    }).join('') || '<div class="empty">Belum ada data.</div>';
+  }
+
+  function renderComposition() {
+    var present = POSITIONS.filter(function (p) {
+      return state.coaches.some(function (c) { return c.counts[p.key]; });
+    });
+    $('#positionLegend').innerHTML = present.map(function (p) {
+      return '<span><i style="background:' + p.color + '"></i>' + esc(p.label) + '</span>';
+    }).join('');
+    var max = Math.max.apply(null, state.coaches.map(function (c) { return c.members.length; }).concat([1]));
+    $('#compositionChart').innerHTML = state.coaches.map(function (c) {
+      return '<div class="comp-row"><b>' + esc(c.name) + '</b>' +
+        '<div style="width:' + Math.max(8, c.members.length / max * 100) + '%">' + stackBar(c.counts, c.members.length || 1) + '</div>' +
+        '<span class="num">' + c.members.length + '</span></div>';
+    }).join('');
+  }
+
+  function renderGaps() {
+    var ms = state.data.milestones;
+    var head = '<thead><tr><th>Milestone</th>' + state.coaches.map(function (c) {
+      return '<th>' + esc(c.name) + '</th>';
+    }).join('') + '<th>Total</th></tr></thead>';
+    var body = '', lastGroup = '';
+    ms.forEach(function (m) {
+      if (m.group !== lastGroup) {
+        lastGroup = m.group;
+        body += '<tr class="grp"><td colspan="' + (state.coaches.length + 2) + '">' + esc(m.group) + '</td></tr>';
+      }
+      var total = 0, totalMembers = 0;
+      var cells = state.coaches.map(function (c) {
+        var n = c.gaps[m.key].length;
+        total += n; totalMembers += c.members.length;
+        return heatCell(n, c.members.length);
+      }).join('');
+      body += '<tr><td>' + esc(m.label) + '</td>' + cells + heatCell(total, totalMembers) + '</tr>';
+    });
+    $('#gapTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+  }
+  function heatCell(n, of) {
+    if (!n) return '<td class="cell zero">0</td>';
+    var r = of ? n / of : 0;
+    var bg = 'rgba(37,99,235,' + (0.08 + r * 0.82).toFixed(2) + ')';
+    return '<td class="cell" title="' + n + ' dari ' + of + '" style="background:' + bg + ';color:' + (r > 0.45 ? '#fff' : '#1e3a8a') + '">' + n + '</td>';
+  }
+
+  // ───────────── Drawer ─────────────
+  function openCoach(key) {
+    state.drawer = { coach: key, tab: 'cg', pos: 'ALL', status: 'ALL' };
+    renderDrawer();
+    $('#drawer').classList.add('open');
+    $('#drawer').setAttribute('aria-hidden', 'false');
+    $('#drawerScrim').classList.add('open');
+    $('#drawerBody').scrollTop = 0;
+    updateLock();
+  }
+  function closeDrawer() {
+    $('#drawer').classList.remove('open');
+    $('#drawer').setAttribute('aria-hidden', 'true');
+    $('#drawerScrim').classList.remove('open');
+    state.drawer.coach = null;
+    updateLock();
+  }
+  function currentCoach() {
+    return state.coaches.filter(function (c) { return c.key === state.drawer.coach; })[0];
+  }
+
+  function renderDrawer() {
+    var c = currentCoach();
+    if (!c) return;
+    $('#drawer').style.setProperty('--accent', c.accent);
+    $('#drawerBody').innerHTML =
+      '<div class="drawer-hero"><div class="dh-row">' +
+      '<div class="avatar lg">' + esc(initials(c.fullName || c.name)) + '</div>' +
+      '<div><div class="dh-sub">Coach</div><div class="dh-name">' + esc(c.name) + '</div>' +
+      '<div class="dh-sub">' + esc(c.fullName || '') + (c.fullName ? ' · ' : '') + c.cgs.length + ' CG</div></div>' +
+      '<button class="close-btn" data-close-drawer aria-label="Tutup">' + ICON.close + '</button></div></div>' +
+      '<div class="drawer-stats">' +
+      '<div class="cc-stat"><b>' + c.members.length + '</b><span>Jiwa</span></div>' +
+      '<div class="cc-stat"><b>' + c.cgs.length + '</b><span>CG</span></div>' +
+      '<div class="cc-stat"><b>' + c.active + '</b><span>Aktif</span></div>' +
+      '<div class="cc-stat"><b>' + c.serving + '</b><span>Melayani</span></div></div>' +
+      '<div class="tabs" role="tablist"><span class="tab-ind"></span>' +
+      tabBtn('cg', 'CG') + tabBtn('people', 'Jemaat') + tabBtn('growth', 'Growth') + '</div>' +
+      '<div id="tabPanel"></div>';
+    renderTab();
+  }
+  function tabBtn(key, label) {
+    return '<button class="tab' + (state.drawer.tab === key ? ' active' : '') + '" data-tab="' + key + '" role="tab">' + label + '</button>';
+  }
+  function moveTabIndicator() {
+    var active = $('.tab.active', $('#drawer'));
+    var ind = $('.tab-ind', $('#drawer'));
+    if (!active || !ind) return;
+    ind.style.width = active.offsetWidth + 'px';
+    ind.style.transform = 'translateX(' + (active.offsetLeft - 4) + 'px)';
+  }
+  function setTab(tab) {
+    state.drawer.tab = tab;
+    $$('.tab', $('#drawer')).forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab); });
+    renderTab();
+  }
+  function renderTab() {
+    var c = currentCoach();
+    var html = '';
+    if (state.drawer.tab === 'cg') html = renderCgTab(c);
+    else if (state.drawer.tab === 'people') html = renderPeopleTab(c);
+    else html = renderGrowthTab(c);
+    var panel = $('#tabPanel');
+    panel.className = '';
+    void panel.offsetWidth; // restart animation
+    panel.className = 'tab-panel';
+    panel.innerHTML = html;
+    requestAnimationFrame(moveTabIndicator);
+  }
+
+  function miniPerson(p) {
+    var info = posInfo(p.position);
+    return '<button class="mini-person' + (isActive(p) ? '' : ' off') + '" data-person="' + p.id + '" title="' + esc(p.name + ' · ' + p.position) + '">' +
+      '<span class="dot" style="background:' + info.color + '">' + esc(initials(p.name)) + '</span>' + esc(p.name.split(' ')[0]) + '</button>';
+  }
+
+  function renderCgTab(c) {
+    if (!c.cgGroups.length) return '<div class="empty">Belum ada CG.</div>';
+    return c.cgGroups.map(function (g, i) {
+      var meta = [];
+      if (g.time) meta.push('<span>' + ICON.clock + esc(g.time) + '</span>');
+      if (g.area) meta.push('<span>' + ICON.pin + esc(g.area) + '</span>');
+      if (g.mode) meta.push('<span>' + ICON.wifi + esc(g.mode) + '</span>');
+      meta.push('<span>' + ICON.users + g.people.length + ' orang · ' + g.active + ' aktif</span>');
+      return '<div class="cg-card" style="animation-delay:' + (i * 50) + 'ms"><div class="cg-top">' +
+        '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0">' +
+        '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + '</div>' +
+        '<div class="cg-meta">' + meta.join('') + '</div></div></div>' +
+        '<div class="cg-members">' + g.people.map(miniPerson).join('') + '</div></div>';
+    }).join('');
+  }
+
+  function renderPeopleTab(c) {
+    var d = state.drawer;
+    var counts = { ALL: c.members.length };
+    c.members.forEach(function (p) { var k = posKey(p.position); counts[k] = (counts[k] || 0) + 1; });
+    var posChips = [{ key: 'ALL', label: 'Semua' }].concat(POSITIONS.filter(function (p) { return counts[p.key]; }))
+      .map(function (p) {
+        return '<button class="chip' + (d.pos === p.key ? ' active' : '') + '" data-pos="' + p.key + '">' + esc(p.label) +
+          '<span class="count">' + counts[p.key] + '</span></button>';
+      }).join('');
+    var statusChips = [['ALL', 'Semua status'], ['ON', 'Aktif'], ['OFF', 'Non-Aktif']].map(function (s) {
+      return '<button class="chip' + (d.status === s[0] ? ' active' : '') + '" data-status="' + s[0] + '">' + s[1] + '</button>';
+    }).join('');
+    var list = c.members.filter(function (p) {
+      if (d.pos !== 'ALL' && posKey(p.position) !== d.pos) return false;
+      if (d.status === 'ON' && !isActive(p)) return false;
+      if (d.status === 'OFF' && isActive(p)) return false;
+      return true;
+    });
+    return '<div class="filter-bar"><div class="chips">' + posChips + '</div><div class="chips">' + statusChips + '</div></div>' +
+      (list.length ? list.map(personRow).join('') : '<div class="empty">Tidak ada yang cocok dengan filter ini.</div>');
+  }
+  function personRow(p, i) {
+    var sub = [p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', p.school || p.occupation].filter(Boolean).join(' · ');
+    var pc = msPct(p);
+    return '<button class="person-row" data-person="' + p.id + '" style="animation-delay:' + Math.min(i || 0, 15) * 30 + 'ms">' +
+      '<div class="avatar sm soft">' + esc(initials(p.name)) + '</div>' +
+      '<div class="pr-main"><div class="pr-name">' + esc(p.name) + '</div><div class="pr-sub">' + esc(sub || '—') + '</div></div>' +
+      posBadge(p) + '<div class="ring" style="--p:' + pc + '" title="Growth ' + pc + '%">' + pc + '%</div></button>';
+  }
+
+  function renderGrowthTab(c) {
+    var ms = state.data.milestones, html = '', last = '';
+    var n = c.members.length || 1;
+    ms.forEach(function (m, i) {
+      if (m.group !== last) { last = m.group; html += '<div class="ms-group-label">' + esc(m.group) + '</div>'; }
+      var missing = c.gaps[m.key];
+      var done = c.members.length - missing.length;
+      var p = pct(done, c.members.length);
+      html += '<div class="ms-row" style="animation-delay:' + i * 35 + 'ms">' +
+        '<button class="ms-head" data-ms="' + m.key + '"><b>' + esc(m.label) + '</b>' +
+        '<div class="bar"><i style="width:' + Math.max(p, 2) + '%;animation-delay:' + (i * 50) + 'ms"></i></div>' +
+        '<span class="ms-pct">' + done + '/' + c.members.length + '</span></button>' +
+        '<div class="ms-body"><div>' + (missing.length
+          ? '<div class="cg-members"><span class="small muted" style="width:100%;margin-bottom:2px">Belum (' + missing.length + '):</span>' + missing.map(miniPerson).join('') + '</div>'
+          : '<div class="cg-members"><span class="small muted">Semua sudah 🎉</span></div>') +
+        '</div></div></div>';
+    });
+    return html;
+  }
+
+  // ───────────── Modal ─────────────
+  function openPerson(id) {
+    var p = state.byId[id];
+    if (!p) return;
+    $('#modal').innerHTML = renderPerson(p);
+    $('#modal').scrollTop = 0;
+    $('#modalWrap').classList.add('open');
+    $('#modalWrap').setAttribute('aria-hidden', 'false');
+    closeSearch();
+    updateLock();
+  }
+  function closeModal() {
+    $('#modalWrap').classList.remove('open');
+    $('#modalWrap').setAttribute('aria-hidden', 'true');
+    updateLock();
+  }
+
+  function renderPerson(p) {
+    var coach = state.coaches.filter(function (c) { return c.key === p.coach; })[0];
+    var accent = coach ? coach.accent : ACCENTS[0];
+    var wa = waLink(p.phone);
+    var actions = [];
+    if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
+    if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
+    if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
+    actions.push('<a class="btn" href="' + esc(state.data.spreadsheetUrl + '&range=A' + p.id) + '" target="_blank" rel="noopener">' + ICON.sheet + 'Baris ' + p.id + '</a>');
+
+    var elig = [['eligibleCgl', 'Eligible CGL'], ['eligibleCoach', 'Eligible Coach'], ['eligibleTl', 'Eligible TL']]
+      .filter(function (e) { return /^yes$/i.test(p[e[0]]); })
+      .map(function (e) { return '<span class="badge" style="background:#fef3c7;color:#92400e">★ ' + e[1] + '</span>'; }).join('');
+
+    // Journey
+    var groups = {};
+    state.data.milestones.forEach(function (m) { (groups[m.group] = groups[m.group] || []).push(m); });
+    var k = 0;
+    var journey = Object.keys(groups).map(function (g) {
+      return '<div class="j-group"><div class="j-label">' + esc(g) + '</div><div class="j-steps">' +
+        groups[g].map(function (m) {
+          var done = p.milestones[m.key];
+          return '<span class="step' + (done ? ' done' : '') + '" style="animation-delay:' + (k++ * 35) + 'ms">' + (done ? ICON.check : '') + esc(m.label) + '</span>';
+        }).join('') + '</div></div>';
+    }).join('');
+
+    // Info
+    var ttl = [p.birthCity, p.birthDate].filter(Boolean).join(', ');
+    var info = [
+      ['Gender', p.gender], ['Umur', p.age ? p.age + ' tahun' : ''], ['Tempat, tgl lahir', ttl], ['Domisili', p.domicile],
+      ['Kerja / Kuliah', p.occupation], ['Kampus / Sekolah', p.school], ['Pelayanan', p.ministry], ['NIJ', p.nij],
+      ['No HP', p.phone], ['Email', p.email],
+    ].map(function (f) {
+      return '<div class="info"><label>' + esc(f[0]) + '</label><div>' + esc(f[1] || '—') + '</div></div>';
+    }).join('') + '<div class="info wide"><label>Alamat</label><div>' + esc(p.address || '—') + '</div></div>';
+
+    // Timeline
+    var rank = { VIP: 0, SIMPATISAN: 0, MEMBER: 1, SPONSOR: 2, CGL: 3, COACH: 4 }[p.position] || 0;
+    var tl = [
+      { t: 'Member', done: rank >= 1 || !!p.dateMember, sub: [p.dateMember && 'Jadi member ' + p.dateMember, p.targetMember && 'Target ' + p.targetMember] },
+      { t: 'Sponsor', done: rank >= 2 || !!p.dateSponsor, sub: [p.dateSponsor && 'Jadi sponsor ' + p.dateSponsor, p.targetSponsor && 'Target ' + p.targetSponsor] },
+      { t: 'CGL', done: rank >= 3, sub: [p.targetCgl && 'Target ' + p.targetCgl] },
+      { t: 'Coach', done: rank >= 4, sub: [p.targetCoach && 'Target ' + p.targetCoach] },
+    ].map(function (x) {
+      var sub = x.sub.filter(Boolean).join(' · ') || (x.done ? 'Selesai' : 'Belum ada target');
+      return '<div class="tl-item' + (x.done ? ' done' : '') + '"><div class="tl-dot"></div><div><div class="tl-title">' + x.t + '</div><div class="tl-sub">' + esc(sub) + '</div></div></div>';
+    }).join('');
+
+    return '<div class="m-head"><div class="m-head-row">' +
+      '<div class="avatar lg" style="--accent:' + accent + '">' + esc(initials(p.name)) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(p.name) + '</div>' +
+      '<div class="m-sub">' + esc([p.cg, p.cgl && p.position !== 'CGL' ? 'CGL ' + p.cgl : '', 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="m-badges">' + posBadge(p) + statusBadge(p) + (p.cgStatus ? '<span class="badge line">' + esc(p.cgStatus) + '</span>' : '') +
+      '<span class="badge line">Growth ' + msPct(p) + '%</span>' + elig + '</div></div>' +
+      '<button class="close-btn dark" data-close-modal aria-label="Tutup">' + ICON.close + '</button></div>' +
+      '<div class="m-actions">' + actions.join('') + '</div></div>' +
+      '<div class="m-body">' +
+      '<div class="m-section"><h4>Perjalanan Bertumbuh</h4><div class="journey">' + journey + '</div></div>' +
+      (p.notes ? '<div class="m-section"><h4>Catatan</h4><div class="note">' + esc(p.notes) + '</div></div>' : '') +
+      '<div class="m-section"><h4>Jenjang</h4><div class="timeline">' + tl + '</div></div>' +
+      '<div class="m-section"><h4>Data Diri</h4><div class="info-grid">' + info + '</div></div>' +
+      '</div>';
+  }
+
+  // ───────────── Search ─────────────
+  function runSearch(q) {
+    q = q.trim().toLowerCase();
+    var box = $('#searchResults');
+    if (!q || !state.data) { closeSearch(); return; }
+    var res = state.people.filter(function (p) {
+      return [p.name, p.cg, p.cgl, p.school, p.coach, p.ministry, p.domicile, p.position].join(' ').toLowerCase().indexOf(q) >= 0;
+    }).slice(0, 30);
+    state.search = { results: res, active: res.length ? 0 : -1 };
+    box.innerHTML = res.length ? res.map(function (p, i) {
+      return '<button class="sr-item' + (i === 0 ? ' active' : '') + '" data-person="' + p.id + '" role="option">' +
+        '<div class="avatar sm soft">' + esc(initials(p.name)) + '</div>' +
+        '<div class="pr-main"><div class="pr-name">' + esc(p.name) + '</div><div class="pr-sub">' +
+        esc([p.cg, 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div></div>' + posBadge(p) + '</button>';
+    }).join('') : '<div class="sr-empty">Tidak ditemukan untuk "' + esc(q) + '"</div>';
+    box.classList.add('open');
+  }
+  function closeSearch() { $('#searchResults').classList.remove('open'); }
+  function moveSearch(dir) {
+    var items = $$('.sr-item');
+    if (!items.length) return;
+    state.search.active = (state.search.active + dir + items.length) % items.length;
+    items.forEach(function (el, i) { el.classList.toggle('active', i === state.search.active); });
+    items[state.search.active].scrollIntoView({ block: 'nearest' });
+  }
+
+  // ───────────── Events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var el;
+    if ((el = t.closest('[data-close-modal]'))) return closeModal();
+    if ((el = t.closest('[data-close-drawer]')) || t.id === 'drawerScrim') return closeDrawer();
+    if ((el = t.closest('[data-person]'))) return openPerson(+el.dataset.person);
+    if ((el = t.closest('[data-coach]'))) return openCoach(el.dataset.coach);
+    if ((el = t.closest('[data-tab]'))) return setTab(el.dataset.tab);
+    if ((el = t.closest('[data-pos]'))) { state.drawer.pos = el.dataset.pos; return renderTab(); }
+    if ((el = t.closest('[data-status]'))) { state.drawer.status = el.dataset.status; return renderTab(); }
+    if ((el = t.closest('[data-ms]'))) return el.parentNode.classList.toggle('open');
+    if (!t.closest('#searchWrap')) closeSearch();
+  });
+
+  var searchInput = $('#searchInput');
+  searchInput.addEventListener('input', function () { runSearch(searchInput.value); });
+  searchInput.addEventListener('focus', function () { if (searchInput.value) runSearch(searchInput.value); });
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveSearch(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveSearch(-1); }
+    else if (e.key === 'Enter') {
+      var p = state.search.results[state.search.active];
+      if (p) openPerson(p.id);
+    } else if (e.key === 'Escape') { searchInput.blur(); closeSearch(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if ($('#modalWrap').classList.contains('open')) closeModal();
+      else if ($('#drawer').classList.contains('open')) closeDrawer();
+    } else if (e.key === '/' && document.activeElement !== searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  });
+
+  window.addEventListener('resize', moveTabIndicator);
+  $('#refreshBtn').addEventListener('click', function () { load(true); });
+
+  load(false);
+})();
+</script>
