@@ -45,7 +45,9 @@ function saveMeeting(token, meeting) {
   const people = parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people;
   const coaches = {};
   const names = clean.people.map(function (name) {
-    const hit = people.filter(function (p) { return !p.isCoach && norm_(p.name) === norm_(name); });
+    const hit = people.filter(function (p) {
+      return (!p.isCoach || session.role === 'ADMIN') && norm_(p.name) === norm_(name);
+    });
     const visible = hit.filter(function (p) { return canAccessCoach_(session, p.coach); });
     if (!visible.length) throw new Error('"' + name + '" tidak ditemukan di data coach kamu.');
     coaches[visible[0].coach] = true;
@@ -66,7 +68,7 @@ function saveMeeting(token, meeting) {
     if (id) {
       const old = rows.filter(function (r) { return r.id === id; });
       if (!old.length) throw new Error('Pertemuan ini sudah tidak ada. Refresh dulu.');
-      if (!canAccessCoach_(session, old[0].coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
+      requireMeetingWrite_(ss, session, old[0]);
       createdBy = old[0].createdBy || createdBy;
       createdAt = old[0].createdAt || createdAt;
       deleteMeetingRows_(sheet, old);
@@ -100,7 +102,7 @@ function setTaskDone(token, meetingId, taskNo, done) {
     const rows = readMeetingRows_(sheet);
     const row = rows.filter(function (r) { return r.id === String(meetingId) && r.no === String(taskNo) && r.task; })[0];
     if (!row) throw new Error('Tugas ini sudah tidak ada. Refresh dulu.');
-    if (!canAccessCoach_(session, row.coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
+    requireMeetingWrite_(ss, session, row);
     sheet.getRange(row.row, MEETING.HEADERS.indexOf('SELESAI') + 1).setValue(done ? '✔' : '-');
     sheet.getRange(row.row, MEETING.HEADERS.indexOf('DIPERBARUI') + 1)
       .setValue(Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm'));
@@ -116,7 +118,7 @@ function deleteMeeting(token, meetingId) {
     const sheet = getMeetingSheet_(ss, false);
     const rows = sheet ? readMeetingRows_(sheet).filter(function (r) { return r.id === String(meetingId); }) : [];
     if (!rows.length) throw new Error('Pertemuan ini sudah tidak ada. Refresh dulu.');
-    if (!canAccessCoach_(session, rows[0].coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
+    requireMeetingWrite_(ss, session, rows[0]);
     deleteMeetingRows_(sheet, rows);
     SpreadsheetApp.flush();
     return meetingsPayload_(ss, session);
@@ -183,6 +185,27 @@ function deleteMeetingRows_(sheet, rows) {
 }
 
 /** Groups task rows into meetings the session may see, newest first. */
+/**
+ * Pertemuan with a coach or the team leader are written by admins; the coach
+ * can see the ones about them, read-only. Returns a test for a meeting row/object.
+ */
+function leaderTest_(ss) {
+  const leaders = {};
+  parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people.forEach(function (p) {
+    if (p.isCoach) leaders[norm_(p.coach) + '|' + norm_(p.name)] = true;
+  });
+  return function (m) {
+    return m.people.some(function (n) { return leaders[norm_(m.coach) + '|' + norm_(n)]; });
+  };
+}
+
+function requireMeetingWrite_(ss, session, m) {
+  if (!canAccessCoach_(session, m.coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
+  if (session.role !== 'ADMIN' && leaderTest_(ss)(m)) {
+    throw new Error('Pertemuan dengan coach / team leader hanya bisa diubah oleh admin.');
+  }
+}
+
 function meetingsPayload_(ss, session) {
   const sheet = getMeetingSheet_(ss, false);
   const rows = sheet ? readMeetingRows_(sheet) : [];
@@ -202,6 +225,11 @@ function meetingsPayload_(ss, session) {
     if (r.task) m.tasks.push({ no: r.no, text: r.task, deadline: r.deadline, done: r.done });
   });
   order.sort(function (a, b) { return (b.date + b.createdAt).localeCompare(a.date + a.createdAt); });
+  const aboutLeader = leaderTest_(ss);
+  order.forEach(function (m) {
+    m.aboutLeader = aboutLeader(m);
+    m.readOnly = session.role !== 'ADMIN' && m.aboutLeader;
+  });
   return { meetings: order, categories: MEETING.CATEGORIES };
 }
 

@@ -28,7 +28,16 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   status and area (taken from the **CGL's row**; without a CGL, the most common value among members), location from
   the Lokasi CG tab with Google Maps / Rute buttons, number of people, average attendance, leaders, average growth,
   position mix, a *Jemaat* tab (CGL → Sponsor → Member → Simpatisan → VIP, with filters) and a *Growth* tab.
-  *Ubah info CG* changes WAKTU / STATUS / DAERAH CG on the CGL's row (coaches: own CGs; admin: all).
+  *Ubah info CG* changes WAKTU / STATUS / DAERAH CG on **every row of that CG** (the page keeps showing the CGL's
+  row; coaches: own CGs; admin: all).
+- **Restructuring** (buttons in a person's profile):
+  - *Status* (Aktif / Non-Aktif) is editable in the Edit form.
+  - *Pindah CG* moves a person to another CG: NO CG, CGL, COACH and the CG schedule fields on their row follow the
+    target CG. Coaches move people between their own CGs; admin anywhere.
+  - *Hapus* (admin only, re-type your password): the row is copied to the **Arsip Jemaat** tab (date, who, reason,
+    original row number, key fields and every cell as `HEADER: value`) and then deleted from the database.
+- **Coaches and the Team Leader** in Pertemuan and LDP: admins can pick them in Pertemuan and set their LDP
+  (e.g. Coach → Team Leader). A coach sees the entries about themselves, read-only.
 - **Coach drawer** (slides in): tabs for CG (members per group), Jemaat (filter by position/status) and Growth (5M / MSJ / CGT completion, click to see who hasn't finished)
 - **Person modal**: growth journey, path (Member → Sponsor → CGL → Coach), personal info, notes, plus WhatsApp / call / email buttons and a link to the person's row in the sheet
 - **Global search** (press `/`), **Growth Gaps** heatmap and a composition chart per coach
@@ -48,6 +57,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `MeetingsUi.html` | Menu, Pertemuan page, the form and the Pertemuan section in profiles |
 | `Ldp.gs` | LDP: targets, realization dates and the monthly berhasil/belum updates |
 | `LdpUi.html` | LDP page and the per-person LDP update form |
+| `Restructure.gs` | CG info for all rows, Pindah CG, delete with archive (password check) |
+| `RestructureUi.html` | Pindah CG and Hapus forms |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -60,8 +71,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp` and `Locations`, plus HTML files named `Index`, `Stylesheet`,
-   `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi` and `CgUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations` and `Restructure`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi` and `RestructureUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)

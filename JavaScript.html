@@ -172,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -854,8 +854,12 @@
     var wa = waLink(p.phone);
     var editing = !!(state.edit && state.edit.id === p.id);
     var actions = [];
-    if (!p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
-    if (!p.isCoach && window.AOGLdp) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
+    var admin = !!(state.data.user && state.data.user.isAdmin);
+    // Coach / team leader rows: only admins edit them (the server enforces the same).
+    if (!p.isCoach || admin) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
+    if (window.AOGLdp && (!p.isCoach || admin)) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
+    if (window.AOGRestructure && !p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-rs-move="' + p.id + '">' + ICON.users + 'Pindah CG</button>');
+    if (window.AOGRestructure && admin) actions.push('<button type="button" class="btn danger-btn" data-rs-delete="' + p.id + '">' + ICON.close + 'Hapus</button>');
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
     if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
     if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
@@ -906,7 +910,7 @@
       '<div class="m-section"><h4>Perjalanan Bertumbuh</h4><div class="journey">' + journey + '</div></div>' +
       (p.notes ? '<div class="m-section"><h4>Catatan</h4><div class="note">' + esc(p.notes) + '</div></div>' : '') +
       '<div class="m-section"><h4>Jenjang</h4><div class="timeline">' + tl + '</div></div>' +
-      (window.AOGMeetings && !p.isCoach ? window.AOGMeetings.personSection(p) : '') +
+      (window.AOGMeetings ? window.AOGMeetings.personSection(p) : '') +
       '<div class="m-section"><h4>Data Diri</h4><div class="info-grid">' + info + '</div></div>' +
       '</div>';
 
@@ -989,6 +993,7 @@
     if (window.AOGLdp) window.AOGLdp.reset();
     if (window.AOGLocations) window.AOGLocations.reset();
     if (window.AOGCg) window.AOGCg.reset();
+    if (window.AOGRestructure) window.AOGRestructure.reset();
     showLogin(message);
   }
 

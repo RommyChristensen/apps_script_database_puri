@@ -25,6 +25,8 @@ const CONFIG = {
   LDP_SHEET_NAME: 'LDP Progress',
   // CG meeting places for the "Lokasi" map (see Locations.gs). Created automatically if missing.
   LOCATION_SHEET_NAME: 'Lokasi CG',
+  // Rows deleted from the database are copied here first (see Restructure.gs).
+  ARCHIVE_SHEET_NAME: 'Arsip Jemaat',
   TIME_ZONE: 'Asia/Jakarta',
 };
 
@@ -38,6 +40,7 @@ const POSITION_OPTIONS = ['VIP', 'SIMPATISAN', 'MEMBER', 'SPONSOR', 'CGL'];
  */
 const EDITABLE_FIELDS = [
   // LDP: "Target" = planned date, "Tgl" = when it actually happened (see LDP_STEPS in Ldp.gs).
+  { key: 'status', label: 'Status', section: 'jenjang', type: 'choice', options: ['Aktif', 'Non-Aktif'] },
   { key: 'targetMember', label: 'Target jadi Member', section: 'jenjang', type: 'date', future: true },
   { key: 'dateMember', label: 'Tgl jadi Member', section: 'jenjang', type: 'date' },
   { key: 'targetSponsor', label: 'Target jadi Sponsor', section: 'jenjang', type: 'date', future: true },
@@ -64,7 +67,7 @@ const EDITABLE_FIELDS = [
   { key: 'address', label: 'Alamat', section: 'pribadi', type: 'textarea', maxLength: 300,
     placeholder: 'Jalan, RT/RW, kelurahan, kecamatan' },
 
-  // CG info: edited from the CG page and always written to the CGL's row (see updateCgInfo).
+  // CG info: edited from the CG page; written to every row of the CG (see updateCgInfo in Restructure.gs).
   { key: 'cgTime', label: 'Waktu CG', section: 'cg', type: 'text', placeholder: 'mis. Kamis 19.30' },
   { key: 'cgStatus', label: 'Status CG', section: 'cg', type: 'choice', options: ['Onsite', 'Online', 'Onsite & Online'] },
   { key: 'cgArea', label: 'Daerah CG', section: 'cg', type: 'suggest' },
@@ -218,32 +221,6 @@ function buildDashboard_(ss, session) {
  * Only cells whose value actually changed are written. Returns the refreshed
  * dashboard data plus a list of what changed.
  */
-/**
- * Changes a CG's schedule / status / area (called from the CG page).
- * info = { cg: 'AOG 03', cgTime, cgStatus, cgArea } — only the keys present are changed.
- * The CG's info lives on its CGL's row, so that row is the one written.
- */
-function updateCgInfo(token, info) {
-  const ss = getSpreadsheet_();
-  const session = requireSession_(token, ss);
-  const code = String((info && info.cg) || '').toUpperCase().replace(/\s+/g, ' ').trim();
-  if (!code) throw new Error('Pilih CG.');
-  return withScriptLock_(function () {
-    const people = parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people;
-    const members = people.filter(function (p) { return p.cg === code && !p.isCoach; });
-    if (!members.length) throw new Error('CG "' + code + '" tidak ditemukan.');
-    if (!canAccessCoach_(session, members[0].coach)) throw new Error('Kamu hanya bisa mengubah CG milik coach kamu.');
-    const cgl = members.filter(function (p) { return p.position === 'CGL'; })[0];
-    if (!cgl) throw new Error('CG ' + code + ' belum punya CGL di database, jadi info CG belum bisa disimpan.');
-    const update = { id: cgl.id, name: cgl.name };
-    ['cgTime', 'cgStatus', 'cgArea'].forEach(function (k) {
-      if (Object.prototype.hasOwnProperty.call(info, k)) update[k] = info[k];
-    });
-    const res = applyPersonUpdate_(ss, session, update);
-    return { changes: res.changes, data: buildDashboard_(ss, session) };
-  });
-}
-
 function updatePerson(token, payload) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);

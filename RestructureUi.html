@@ -1,0 +1,185 @@
+<script>
+/* "Pindah CG" (move a person to another CG) and "Hapus" (admin only: archive
+   to the Arsip Jemaat tab, then delete; needs the admin's password).
+   Opened from the buttons in a person's profile. Talks to Restructure.gs. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    move: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+    search: '<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  };
+
+  var R = { mode: '', p: null, target: '', q: '', reason: '', password: '', busy: false };
+
+  function show() {
+    $('#rsModalWrap').classList.add('open');
+    $('#rsModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+  }
+  function close() {
+    if (R.busy) return;
+    R.mode = ''; R.p = null; R.password = '';
+    $('#rsModalWrap').classList.remove('open');
+    $('#rsModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+  function head(p, title, icon, danger) {
+    return '<div class="m-head' + (danger ? ' rs-danger-head' : '') + '"><div class="m-head-row">' +
+      '<div class="avatar lg' + (danger ? ' rs-danger' : '') + '">' + icon + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div>' +
+      '<div class="m-sub">' + esc([p.name, p.cg, p.coach && 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<button class="close-btn dark" data-rs-close aria-label="Tutup">' + IC.close + '</button></div></div>';
+  }
+
+  // ───────────── Pindah CG ─────────────
+  /** CGs the session can see (a coach only has their own people, so only their own CGs). */
+  function cgOptions(p) {
+    var by = {};
+    (A.state.people || []).forEach(function (x) {
+      if (x.isCoach || !x.cg || x.cg === p.cg) return;
+      (by[x.cg] = by[x.cg] || []).push(x);
+    });
+    return Object.keys(by).map(function (code) {
+      var list = by[code];
+      var cgl = list.filter(function (x) { return x.position === 'CGL'; })[0];
+      return { code: code, coach: list[0].coach, cgl: cgl ? cgl.name : '', time: A.cgInfo(list, 'cgTime'), size: list.length };
+    }).sort(function (a, b) { return a.coach.localeCompare(b.coach) || a.code.localeCompare(b.code, 'id', { numeric: true }); });
+  }
+
+  function openMove(p) {
+    R = { mode: 'move', p: p, target: '', q: '', busy: false };
+    renderMove();
+    show();
+  }
+
+  function renderMove() {
+    var p = R.p, q = R.q.toLowerCase().trim();
+    var opts = cgOptions(p).filter(function (o) {
+      return !q || [o.code, o.cgl, o.coach, o.time].join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+    var isCgl = p.position === 'CGL';
+    var targetLabel = R.target ? 'Pindahkan ke ' + R.target : 'Pilih CG tujuan';
+    $('#rsModal').innerHTML = head(p, 'Pindah CG', IC.move) +
+      '<div class="m-body">' +
+      (isCgl ? '<div class="rs-warn">' + IC.warn + '<span>' + esc(p.name) + ' adalah CGL ' + esc(p.cg) + '. Setelah pindah, ' + esc(p.cg) +
+        ' tidak punya CGL sampai ada yang diangkat.</span></div>' : '') +
+      '<div class="mt-search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>' +
+      '<input id="rsSearch" type="search" placeholder="Cari CG, CGL, coach…" value="' + esc(R.q) + '" autocomplete="off"></div>' +
+      '<div class="rs-options">' + (opts.map(function (o) {
+        return '<button type="button" class="rs-option' + (R.target === o.code ? ' active' : '') + '" data-rs-target="' + esc(o.code) + '">' +
+          '<span class="cg-code">' + esc(o.code) + '</span><span class="pr-main"><span class="pr-name">' + esc(o.cgl ? 'CGL ' + o.cgl : 'Belum ada CGL') + '</span>' +
+          '<span class="pr-sub">' + esc(['Coach ' + o.coach, o.time, o.size + ' orang'].filter(Boolean).join(' · ')) + '</span></span></button>';
+      }).join('') || '<div class="sr-empty">Tidak ada CG lain yang bisa dipilih.</div>') + '</div>' +
+      '<div class="hint soft">NO CG, CGL, COACH dan jadwal CG di baris ' + esc(p.name.split(' ')[0]) + ' akan disesuaikan dengan CG tujuan. Riwayat LDP dan pertemuan tetap.</div>' +
+      '</div>' +
+      '<div class="m-footer"><span class="ldp-err" id="rsErr"></span><button type="button" class="btn" data-rs-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="rsGo"' + (R.target ? '' : ' disabled') + '><span class="spin"></span>' + IC.move +
+      '<span id="rsGoLabel">' + esc(targetLabel) + '</span></button></div>';
+  }
+
+  function doMove() {
+    if (!R.target || R.busy) return;
+    busy(true, 'Memindahkan…');
+    var p = R.p, target = R.target;
+    A.api('movePerson', { id: p.id, name: p.name, cg: target }).then(function (res) {
+      R.busy = false;
+      close();
+      A.applyData(res.data);
+      A.refreshPerson();
+      A.toast(p.name.split(' ')[0] + ' sekarang di ' + target + ' ✨');
+    }, fail);
+  }
+
+  // ───────────── Hapus ─────────────
+  function openDelete(p) {
+    R = { mode: 'delete', p: p, reason: '', password: '', busy: false };
+    $('#rsModal').innerHTML = head(p, 'Hapus data', IC.trash, true) +
+      '<div class="m-body">' +
+      '<div class="rs-warn danger">' + IC.warn + '<span>Baris <b>' + esc(p.name) + '</b> (baris ' + p.id + ') akan dihapus dari database. ' +
+      'Seluruh datanya disalin dulu ke tab <b>Arsip Jemaat</b>.</span></div>' +
+      '<div class="field wide"><label for="rsReason">Alasan</label><textarea id="rsReason" rows="2" maxlength="500" placeholder="mis. Pindah gereja, data ganda, restrukturisasi CG"></textarea></div>' +
+      '<div class="field wide"><label for="rsPassword">Password kamu (' + esc(A.state.data.user.username) + ')</label>' +
+      '<input id="rsPassword" type="password" autocomplete="current-password" placeholder="Ketik ulang password untuk konfirmasi"></div>' +
+      '</div>' +
+      '<div class="m-footer"><span class="ldp-err" id="rsErr"></span><button type="button" class="btn" data-rs-close>Batal</button>' +
+      '<button type="button" class="btn danger-btn solid" id="rsGo" disabled><span class="spin"></span>' + IC.trash + '<span id="rsGoLabel">Hapus &amp; arsipkan</span></button></div>';
+    show();
+    setTimeout(function () { var el = $('#rsReason'); if (el) el.focus(); }, 300);
+  }
+
+  function updateDeleteBtn() {
+    $('#rsGo').disabled = R.busy || R.reason.trim().length < 3 || !R.password;
+  }
+
+  function doDelete() {
+    if (R.busy || R.reason.trim().length < 3 || !R.password) return;
+    busy(true, 'Menghapus…');
+    var p = R.p;
+    A.api('deletePerson', { id: p.id, name: p.name, reason: R.reason.trim(), password: R.password }).then(function (res) {
+      R.busy = false;
+      R.password = '';
+      close();
+      $('#modalWrap').classList.remove('open'); // the profile of someone who no longer exists
+      A.updateLock();
+      A.applyData(res.data);
+      A.toast(res.deleted + ' dihapus · tersimpan di Arsip Jemaat');
+    }, fail);
+  }
+
+  // ───────────── shared ─────────────
+  function busy(on, label) {
+    R.busy = on;
+    $('#rsGo').disabled = on;
+    $('#rsGo').classList.toggle('loading', on);
+    if (label) $('#rsGoLabel').textContent = label;
+  }
+  function fail(err) {
+    R.busy = false;
+    if (err.isAuth) return;
+    var btn = $('#rsGo');
+    if (!btn) return;
+    btn.classList.remove('loading');
+    $('#rsGoLabel').textContent = R.mode === 'move' ? 'Pindahkan ke ' + R.target : 'Hapus & arsipkan';
+    $('#rsErr').textContent = A.errText(err);
+    if (R.mode === 'delete') { R.password = ''; $('#rsPassword').value = ''; $('#rsPassword').focus(); updateDeleteBtn(); }
+    else btn.disabled = false;
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-rs-move]'))) { var p = A.state.byId[+el.dataset.rsMove]; return p && openMove(p); }
+    if ((el = t.closest('[data-rs-delete]'))) { var d = A.state.byId[+el.dataset.rsDelete]; return d && openDelete(d); }
+    if (!R.mode) return;
+    if (t.closest('[data-rs-close]')) return close();
+    if ((el = t.closest('[data-rs-target]'))) { R.target = el.dataset.rsTarget; return renderMove(); }
+    if (t.closest('#rsGo')) return R.mode === 'move' ? doMove() : doDelete();
+  });
+
+  document.addEventListener('input', function (e) {
+    if (!R.mode) return;
+    if (e.target.id === 'rsSearch') {
+      R.q = e.target.value;
+      renderMove();
+      var s = $('#rsSearch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length);
+    }
+    if (e.target.id === 'rsReason') { R.reason = e.target.value; updateDeleteBtn(); }
+    if (e.target.id === 'rsPassword') { R.password = e.target.value; updateDeleteBtn(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (!R.mode) return;
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    if (e.key === 'Enter' && e.target.id === 'rsPassword') { e.preventDefault(); doDelete(); }
+  }, true);
+
+  window.AOGRestructure = {
+    reset: function () { R.busy = false; close(); },
+  };
+})();
+</script>

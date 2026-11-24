@@ -51,13 +51,17 @@
   function openTasks(m) { return m.tasks.filter(function (t) { return !t.done; }); }
   function isAdmin() { return !!(A.state.data && A.state.data.user && A.state.data.user.isAdmin); }
 
-  /** People of the database that a meeting can be with (no coaches / team leader). */
+  /** People a meeting can be with: coaches' own people; admins can also pick coaches and the team leader. */
   function candidates() {
-    return (A.state.people || []).filter(function (p) { return !p.isCoach; });
+    var admin = isAdmin();
+    return (A.state.people || []).filter(function (p) { return !p.isCoach || admin; });
   }
+  /** Any visible person (a coach sees the coach row about themselves in admin's meetings). */
   function findPerson(name, coach) {
     var n = norm(name);
-    return candidates().filter(function (p) { return norm(p.name) === n && (!coach || p.coach === coach); })[0];
+    return (A.state.people || []).filter(function (p) {
+      return norm(p.name) === n && (coach == null || p.coach === coach);
+    })[0];
   }
 
   function dueLabel(t) {
@@ -216,16 +220,20 @@
     }).join('');
     var tasks = m.tasks.map(function (t) {
       return '<li class="task' + (t.done ? ' done' : '') + (isOverdue(t) ? ' overdue' : '') + '">' +
-        '<button class="tick" data-mt-tick="' + esc(m.id) + '" data-no="' + esc(t.no) + '" aria-pressed="' + t.done + '" title="Tandai selesai">' + IC.check + '</button>' +
+        '<button class="tick" data-mt-tick="' + esc(m.id) + '" data-no="' + esc(t.no) + '" aria-pressed="' + t.done + '"' +
+        (m.readOnly ? ' disabled title="Hanya admin yang bisa mengubah"' : ' title="Tandai selesai"') + '>' + IC.check + '</button>' +
         '<span class="t-text">' + esc(t.text) + '</span>' + dueLabel(t) + '</li>';
     }).join('');
     return '<article class="mt-card st-' + statusOf(m) + '" style="animation-delay:' + Math.min(i, 12) * 40 + 'ms">' +
       '<div class="mt-date"><b>' + (d ? d.getDate() : '?') + '</b><span>' + esc(fmt(m.date, { month: 'short' })) + '</span></div>' +
       '<div class="mt-main">' +
       '<div class="mt-top"><span class="mt-cat">' + esc(m.category) + '</span>' +
-      (isAdmin() ? '<span class="badge line">Coach ' + esc(m.coach) + '</span>' : '') +
-      '<div class="mt-actions"><button class="icon-sm" data-mt-edit="' + esc(m.id) + '" title="Edit">' + IC.edit + '</button>' +
-      '<button class="icon-sm danger" data-mt-del="' + esc(m.id) + '" title="Hapus">' + IC.trash + '</button></div></div>' +
+      (isAdmin() ? '<span class="badge line">' + (m.coach ? 'Coach ' + esc(m.coach) : 'Team Leader') + '</span>' : '') +
+      (m.aboutLeader ? '<span class="badge line">Dengan coach / TL</span>' : '') +
+      (m.readOnly
+        ? '<div class="mt-actions"><span class="badge line" title="Dicatat oleh admin">Hanya lihat</span></div></div>'
+        : '<div class="mt-actions"><button class="icon-sm" data-mt-edit="' + esc(m.id) + '" title="Edit">' + IC.edit + '</button>' +
+          '<button class="icon-sm danger" data-mt-del="' + esc(m.id) + '" title="Hapus">' + IC.trash + '</button></div></div>') +
       '<div class="cg-members mt-people">' + people + '</div>' +
       '<p class="mt-purpose">' + esc(m.purpose) + '</p>' +
       (m.tasks.length
@@ -434,7 +442,7 @@
         (m.tasks.length ? '<span class="badge ' + (m.tasks.some(isOverdue) ? 'is-warn' : 'line') + '">' + done + '/' + m.tasks.length + '</span>' : '') + '</button>';
     }).join('');
     return '<div class="m-section"><h4>Pertemuan' + (list.length ? ' <span class="h4-hint">' + list.length + ' tercatat' + (open ? ' · ' + open + ' tugas terbuka' : '') + '</span>' : '') +
-      '<button type="button" class="link-btn h4-action" data-new-meeting-for="' + p.id + '">' + IC.plus + 'Catat pertemuan</button></h4>' +
+      (!p.isCoach || isAdmin() ? '<button type="button" class="link-btn h4-action" data-new-meeting-for="' + p.id + '">' + IC.plus + 'Catat pertemuan</button>' : '') + '</h4>' +
       (!M.loaded ? '<div class="muted small">Memuat…</div>' : items || '<div class="muted small">Belum ada pertemuan dengan ' + esc(p.name.split(' ')[0]) + '.</div>') +
       (list.length > 4 ? '<button class="link-btn" data-mt-show="' + esc(p.name) + '">Lihat semua ' + list.length + ' pertemuan</button>' : '') +
       '</div>';

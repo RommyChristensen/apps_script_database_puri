@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -57,7 +57,7 @@ test('parses 5 coaches from banner rows', () => {
   const d = api.getDashboardData();
   assert.deepStrictEqual(clone(d.coaches.map((c) => c.name)), ['Angie', 'Lenita', 'Carla', 'Meysia', 'David']);
   assert.ok(d.positionOptions.includes('SPONSOR'));
-  assert.strictEqual(d.editableFields.filter((f) => f.section === 'jenjang').length, 11);
+  assert.strictEqual(d.editableFields.filter((f) => f.section === 'jenjang').length, 12);
   assert.strictEqual(d.editableFields.filter((f) => f.section === 'pribadi').length, 11);
 });
 
@@ -612,7 +612,7 @@ test('domisili layer only counts people the session may see', () => {
 });
 
 console.log('CG info');
-test('updateCgInfo writes schedule/status/area to the CGL row only', () => {
+test('updateCgInfo writes schedule/status/area to every row of the CG', () => {
   const s = boot(clone(base), { accounts: coachAccounts(), as: ['angie', 'angie-pass'] });
   const people = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token).people;
   const cgl = people.find((p) => p.coach === 'Angie' && p.position === 'CGL');
@@ -622,7 +622,9 @@ test('updateCgInfo writes schedule/status/area to the CGL row only', () => {
   assert.deepStrictEqual(clone(res.changes.map((c) => c.label)), ['Waktu CG', 'Status CG', 'Daerah CG']);
   const row = s.grid[cgl.id - 1];
   assert.deepStrictEqual([row[H.indexOf('WAKTU CG')], row[H.indexOf('STATUS CG')], row[H.indexOf('DAERAH CG')]], ['Jumat 19.30', 'Online', 'Puri Indah']);
-  assert.notStrictEqual(s.grid[member.id - 1][H.indexOf('WAKTU CG')], 'Jumat 19.30', 'members\' rows untouched');
+  const rowsOfCg = s.grid.filter((r, i) => i > 4 && r[H.indexOf('NO CG')] === cgl.cg && r[H.indexOf('POSISI')] !== 'COACH');
+  assert.ok(rowsOfCg.length > 1 && rowsOfCg.every((r) => r[H.indexOf('WAKTU CG')] === 'Jumat 19.30' && r[H.indexOf('STATUS CG')] === 'Online'));
+  assert.strictEqual(s.grid[member.id - 1][H.indexOf('DAERAH CG')], 'Puri Indah');
   assert.throws(() => s.raw.updateCgInfo(s.token, { cg: cgl.cg, cgStatus: 'Hybrid' }), /Status CG harus/);
   const carla = people.find((p) => p.coach === 'Carla' && p.cg);
   assert.throws(() => s.raw.updateCgInfo(s.token, { cg: carla.cg, cgTime: 'x' }), /coach kamu/);
@@ -633,6 +635,102 @@ test('the person edit form does not offer the CG fields', () => {
   const s = boot(clone(base));
   const d = s.api.getDashboardData();
   assert.deepStrictEqual(clone(d.editableFields.filter((f) => f.section === 'cg').map((f) => f.key)), ['cgTime', 'cgStatus', 'cgArea']);
+});
+
+console.log('Restructure.gs');
+/** Demo data with a COACH column (like the real sheet) instead of banner rows only. */
+function withCoachColumn(values) {
+  const v = clone(values);
+  let coach = '';
+  v.forEach((r, i) => {
+    const banner = /^COACH\s+(.+)$/i.exec(r[0] || '');
+    if (banner) coach = banner[1].charAt(0) + banner[1].slice(1).toLowerCase();
+    r.push(i === 3 ? 'COACH' : i > 4 && r[2] ? coach : '');
+  });
+  return v;
+}
+function rsSetup(as) {
+  const s = boot(withCoachColumn(base), { accounts: coachAccounts(), as: as || ['angie', 'angie-pass'] });
+  const admin = s.raw.login('admin', 'admin-pass').token;
+  const people = () => s.raw.getDashboardData(admin).people;
+  const H = s.grid[3];
+  const cell = (id, h) => s.grid[id - 1][H.indexOf(h)];
+  return { s, admin, people, H, cell };
+}
+
+test('status Aktif / Non-Aktif is editable', () => {
+  const { s, people, cell } = rsSetup();
+  const p = people().find((x) => x.coach === 'Angie' && x.status === 'Aktif' && !x.isCoach);
+  s.raw.updatePerson(s.token, { id: p.id, name: p.name, status: 'Non-Aktif' });
+  assert.strictEqual(cell(p.id, 'STATUS'), 'Non-Aktif');
+  assert.throws(() => s.raw.updatePerson(s.token, { id: p.id, name: p.name, status: 'Pindah' }), /Status harus/);
+});
+
+test('Pindah CG copies NO CG, CGL, COACH and CG info from the target CG', () => {
+  const { s, admin, people, cell } = rsSetup();
+  const all = people();
+  const angieCgs = [...new Set(all.filter((x) => x.coach === 'Angie' && x.cg).map((x) => x.cg))];
+  const p = all.find((x) => x.cg === angieCgs[0] && x.position === 'MEMBER');
+  const targetCgl = all.find((x) => x.cg === angieCgs[1] && x.position === 'CGL');
+  const res = s.raw.movePerson(s.token, { id: p.id, name: p.name, cg: angieCgs[1] });
+  assert.strictEqual(cell(p.id, 'NO CG'), angieCgs[1]);
+  assert.strictEqual(cell(p.id, 'CGL'), targetCgl.name);
+  assert.strictEqual(cell(p.id, 'WAKTU CG'), targetCgl.cgTime);
+  assert.ok(res.changes.some((c) => c.label === 'NO CG'));
+  // coaches can't move people to another coach's CG; admin can (COACH follows)
+  const carlaCg = all.find((x) => x.coach === 'Carla' && x.cg).cg;
+  assert.throws(() => s.raw.movePerson(s.token, { id: p.id, name: p.name, cg: carlaCg }), /coach kamu/);
+  s.raw.movePerson(admin, { id: p.id, name: p.name, cg: carlaCg });
+  assert.strictEqual(cell(p.id, 'COACH'), 'Carla');
+  assert.throws(() => s.raw.movePerson(admin, { id: p.id, name: p.name, cg: carlaCg }), /sudah ada di/);
+  assert.throws(() => s.raw.movePerson(admin, { id: p.id, name: p.name, cg: 'AOG 99' }), /tidak ditemukan/);
+});
+
+test('delete: admin only, password required, archived before the row is removed', () => {
+  const { s, admin, people } = rsSetup();
+  const p = people().find((x) => x.coach === 'Angie' && x.position === 'MEMBER');
+  const rowsBefore = s.grid.length;
+  const next = s.grid[p.id]; // the row below moves up
+  assert.throws(() => s.raw.deletePerson(s.token, { id: p.id, name: p.name, reason: 'pindah gereja', password: 'angie-pass' }), /Hanya admin/);
+  assert.throws(() => s.raw.deletePerson(admin, { id: p.id, name: p.name, reason: 'pindah gereja', password: 'salah' }), /Password salah/);
+  assert.throws(() => s.raw.deletePerson(admin, { id: p.id, name: p.name, reason: '', password: 'admin-pass' }), /alasan/);
+  assert.strictEqual(s.grid.length, rowsBefore, 'nothing deleted yet');
+  const res = s.raw.deletePerson(admin, { id: p.id, name: p.name, reason: 'Pindah gereja', password: 'admin-pass' });
+  assert.strictEqual(s.grid.length, rowsBefore - 1);
+  assert.strictEqual(s.grid[p.id - 1], next);
+  assert.ok(!res.data.people.some((x) => x.name === p.name && x.cg === p.cg));
+  const arc = s.mocks.spreadsheet.getSheetByName('Arsip Jemaat')._grid;
+  assert.deepStrictEqual(clone(arc[1].slice(1, 6)), ['admin', 'Pindah gereja', String(p.id), p.name, p.cg]);
+  assert.match(arc[1][10], /NAMA: /);
+  assert.match(arc[1][10], /MSJ 1: (✔|-)/, 'sub-header names are used for milestone columns, "-" kept');
+  const log = s.mocks.spreadsheet.getSheetByName('Edit Log')._grid;
+  assert.match(log[log.length - 1][4], /Dihapus \(diarsipkan\)/);
+});
+
+test('admin can log Pertemuan with a coach; the coach sees it read-only', () => {
+  const { s, admin, people } = rsSetup();
+  const angieRow = people().find((x) => x.coach === 'Angie' && x.isCoach && !x.isLeader);
+  const id = s.raw.saveMeeting(admin, { date: '2026-11-20', people: [angieRow.name], category: 'Evaluasi CG', purpose: 'Evaluasi coach bulanan',
+    tasks: [{ text: 'Rekap LDP', deadline: '2026-12-01' }] }).savedId;
+  const seen = s.raw.getMeetings(s.token).meetings.find((m) => m.id === id);
+  assert.ok(seen && seen.readOnly && seen.aboutLeader, 'Angie sees it, read-only');
+  assert.strictEqual(s.raw.getMeetings(admin).meetings.find((m) => m.id === id).readOnly, false);
+  assert.throws(() => s.raw.setTaskDone(s.token, id, '1', true), /hanya bisa diubah oleh admin/);
+  assert.throws(() => s.raw.deleteMeeting(s.token, id), /hanya bisa diubah oleh admin/);
+  assert.throws(() => s.raw.saveMeeting(s.token, { id, date: '2026-11-20', people: [angieRow.name], category: 'Evaluasi CG', purpose: 'x x x' }), /tidak ditemukan|hanya bisa diubah/);
+  assert.throws(() => s.raw.saveMeeting(s.token, { date: '2026-11-20', people: [angieRow.name], category: 'Evaluasi CG', purpose: 'Coach log' }), /tidak ditemukan/);
+  assert.strictEqual(s.raw.getMeetings(s.raw.login('lenita', 'lenita-pass').token).meetings.length, 0, 'other coaches do not see it');
+});
+
+test('admin sets LDP for a coach (Coach → Team Leader); the coach cannot', () => {
+  const { s, admin, people, cell } = rsSetup();
+  const angieRow = people().find((x) => x.coach === 'Angie' && x.isCoach && !x.isLeader);
+  const res = s.raw.saveLdp(admin, { id: angieRow.id, name: angieRow.name, targets: { tl: '2027-12-31' },
+    progress: { step: 'tl', result: 'belum', note: 'Masih fokus multiplikasi CG' } });
+  assert.strictEqual(cell(angieRow.id, 'TARGET JD TEAM LEADER'), '31 December 2027');
+  assert.strictEqual(res.progress[0].stepLabel, 'Team Leader');
+  assert.throws(() => s.raw.saveLdp(s.token, { id: angieRow.id, name: angieRow.name, targets: { tl: '2027-06-30' } }), /tidak punya akses/);
+  assert.strictEqual(s.raw.getLdpProgress(s.token).progress.length, 1, 'Angie sees the entry about herself');
 });
 
 const csv = process.argv[2];
