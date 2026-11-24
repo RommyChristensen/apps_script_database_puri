@@ -24,6 +24,11 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   text search; overdue tasks show a red badge on the menu. Each person's profile lists their meetings
   with a *Catat meeting* shortcut.
 - **Coach cards**: number of people, number of CGs, % active, position mix and average growth
+- **CG page**: in the coach drawer, click a CG card (or *Lihat CG*) to open a page for that Connect Group: schedule,
+  status and area (taken from the **CGL's row**; without a CGL, the most common value among members), location from
+  the Lokasi CG tab with Google Maps / Rute buttons, number of people, average attendance, leaders, average growth,
+  position mix, a *Jemaat* tab (CGL → Sponsor → Member → Simpatisan → VIP, with filters) and a *Growth* tab.
+  *Ubah info CG* changes WAKTU / STATUS / DAERAH CG on the CGL's row (coaches: own CGs; admin: all).
 - **Coach drawer** (slides in): tabs for CG (members per group), Jemaat (filter by position/status) and Growth (5M / MSJ / CGT completion, click to see who hasn't finished)
 - **Person modal**: growth journey, path (Member → Sponsor → CGL → Coach), personal info, notes, plus WhatsApp / call / email buttons and a link to the person's row in the sheet
 - **Global search** (press `/`), **Growth Gaps** heatmap and a composition chart per coach
@@ -43,6 +48,7 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `MeetingsUi.html` | Menu, Pertemuan page, the form and the Pertemuan section in profiles |
 | `Ldp.gs` | LDP: targets, realization dates and the monthly berhasil/belum updates |
 | `LdpUi.html` | LDP page and the per-person LDP update form |
+| `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
@@ -55,7 +61,7 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
    script files `Code`, `Auth`, `Meetings`, `Ldp` and `Locations`, plus HTML files named `Index`, `Stylesheet`,
-   `JavaScript`, `MeetingsUi`, `LdpUi` and `LocationsUi`.
+   `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi` and `CgUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)

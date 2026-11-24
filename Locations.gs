@@ -130,7 +130,14 @@ function cgSummaries_(ss) {
       order.push(g);
     }
     g.size++;
-    if (p.position === 'CGL' && !g.cgl) g.cgl = p.name;
+    if (p.position === 'CGL' && !g.cglRow) {
+      // The CGL's row is the source of truth for the CG's schedule, status and area.
+      g.cglRow = true;
+      g.cgl = p.name;
+      if (p.cgTime) g.time = p.cgTime;
+      if (p.cgStatus) g.mode = p.cgStatus;
+      if (p.cgArea) g.area = p.cgArea;
+    }
     if (!g.cgl && p.cgl) g.cgl = p.cgl;
     if (!g.time && p.cgTime) g.time = p.cgTime;
     if (!g.mode && p.cgStatus) g.mode = p.cgStatus;

@@ -63,6 +63,11 @@ const EDITABLE_FIELDS = [
   { key: 'ministry', label: 'Pelayanan', section: 'pribadi', type: 'suggest' },
   { key: 'address', label: 'Alamat', section: 'pribadi', type: 'textarea', maxLength: 300,
     placeholder: 'Jalan, RT/RW, kelurahan, kecamatan' },
+
+  // CG info: edited from the CG page and always written to the CGL's row (see updateCgInfo).
+  { key: 'cgTime', label: 'Waktu CG', section: 'cg', type: 'text', placeholder: 'mis. Kamis 19.30' },
+  { key: 'cgStatus', label: 'Status CG', section: 'cg', type: 'choice', options: ['Onsite', 'Online', 'Onsite & Online'] },
+  { key: 'cgArea', label: 'Daerah CG', section: 'cg', type: 'suggest' },
 ];
 
 const EMAIL_RE_ = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -213,6 +218,32 @@ function buildDashboard_(ss, session) {
  * Only cells whose value actually changed are written. Returns the refreshed
  * dashboard data plus a list of what changed.
  */
+/**
+ * Changes a CG's schedule / status / area (called from the CG page).
+ * info = { cg: 'AOG 03', cgTime, cgStatus, cgArea } — only the keys present are changed.
+ * The CG's info lives on its CGL's row, so that row is the one written.
+ */
+function updateCgInfo(token, info) {
+  const ss = getSpreadsheet_();
+  const session = requireSession_(token, ss);
+  const code = String((info && info.cg) || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!code) throw new Error('Pilih CG.');
+  return withScriptLock_(function () {
+    const people = parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people;
+    const members = people.filter(function (p) { return p.cg === code && !p.isCoach; });
+    if (!members.length) throw new Error('CG "' + code + '" tidak ditemukan.');
+    if (!canAccessCoach_(session, members[0].coach)) throw new Error('Kamu hanya bisa mengubah CG milik coach kamu.');
+    const cgl = members.filter(function (p) { return p.position === 'CGL'; })[0];
+    if (!cgl) throw new Error('CG ' + code + ' belum punya CGL di database, jadi info CG belum bisa disimpan.');
+    const update = { id: cgl.id, name: cgl.name };
+    ['cgTime', 'cgStatus', 'cgArea'].forEach(function (k) {
+      if (Object.prototype.hasOwnProperty.call(info, k)) update[k] = info[k];
+    });
+    const res = applyPersonUpdate_(ss, session, update);
+    return { changes: res.changes, data: buildDashboard_(ss, session) };
+  });
+}
+
 function updatePerson(token, payload) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);

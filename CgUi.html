@@ -1,0 +1,309 @@
+<script>
+/* CG overview page: opened from a CG card in the coach drawer.
+   Schedule / status / area come from the CGL's row (A.cgInfo); the location
+   from the "Lokasi CG" tab (Locations.gs). Members are listed CGL → VIP.
+   "Ubah info CG" writes WAKTU / STATUS / DAERAH CG to the CGL's row
+   (updateCgInfo in Code.gs). */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var CG_KEY = 'aogpuri.cg';
+  var ORDER = ['CGL', 'SPONSOR', 'MEMBER', 'SIMPATISAN', 'VIP'];
+
+  var IC = {
+    back: '<svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+    clock: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    pin: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    route: '<svg class="i" viewBox="0 0 24 24"><path d="M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/><path d="M6 15V9a4 4 0 0 1 4-4h4M18 9v6a4 4 0 0 1-4 4h-4"/></svg>',
+    wifi: '<svg class="i" viewBox="0 0 24 24"><path d="M4 9.5a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 16.5a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".8"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    users: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
+  };
+
+  var C = {
+    code: '', tab: 'people', pos: 'ALL', status: 'ALL', openMs: '',
+    locations: null, locLoading: false, form: null,
+  };
+  try { C.code = localStorage.getItem(CG_KEY) || ''; } catch (e) { /* ignore */ }
+
+  function setView(v) { if (window.AOGMeetings) window.AOGMeetings.setView(v); }
+  function members() {
+    return (A.state.people || []).filter(function (p) { return p.cg === C.code && !p.isCoach; })
+      .sort(function (a, b) {
+        var ra = ORDER.indexOf(a.position), rb = ORDER.indexOf(b.position);
+        return (ra < 0 ? 9 : ra) - (rb < 0 ? 9 : rb) || a.name.localeCompare(b.name);
+      });
+  }
+  function coachOf(list) {
+    var key = list[0] && list[0].coach;
+    return (A.state.coaches || []).filter(function (c) { return c.key === key; })[0] || { key: key, name: key };
+  }
+  function avg(list, fn) {
+    var xs = list.map(fn).filter(function (v) { return v != null; });
+    return xs.length ? Math.round(xs.reduce(function (s, v) { return s + v; }, 0) / xs.length) : null;
+  }
+  function canEdit(list) {
+    var u = A.state.data && A.state.data.user;
+    return !!(u && list.length && (u.isAdmin || String(u.coach).toLowerCase() === String(list[0].coach).toLowerCase()));
+  }
+
+  // ───────────── open / close ─────────────
+  function open(code) {
+    C.code = code;
+    C.tab = 'people'; C.pos = 'ALL'; C.status = 'ALL'; C.openMs = '';
+    try { localStorage.setItem(CG_KEY, code); } catch (e) { /* ignore */ }
+    A.closeDrawer();
+    setView('cg');
+    loadLocations();
+  }
+
+  function back(list) {
+    var coach = coachOf(list || members());
+    setView('dashboard');
+    if (coach && coach.key) setTimeout(function () { A.openCoach(coach.key); }, 60);
+  }
+
+  function loadLocations() {
+    if (C.locLoading) return;
+    C.locLoading = true;
+    A.api('getCgLocations').then(function (res) {
+      C.locLoading = false;
+      C.locations = res.cgs || [];
+      if (!$('#cgView').hidden) render();
+    }, function () { C.locLoading = false; });
+  }
+
+  // ───────────── page ─────────────
+  function render() {
+    var box = $('#cgView');
+    if (!A.state.data) return;
+    var list = members();
+    if (!C.code || !list.length) { setView('dashboard'); return; }
+    var coach = coachOf(list);
+    var cglRow = list.filter(function (p) { return p.position === 'CGL'; })[0];
+    var time = A.cgInfo(list, 'cgTime'), mode = A.cgInfo(list, 'cgStatus'), area = A.cgInfo(list, 'cgArea');
+    var active = list.filter(A.isActive).length;
+    var hadir = avg(list, function (p) { return p.attendancePct; });
+    var growth = avg(list, A.msPct);
+    var counts = {};
+    list.forEach(function (p) { counts[p.position] = (counts[p.position] || 0) + 1; });
+    var loc = (C.locations || []).filter(function (l) { return l.code === C.code; })[0];
+    var placed = loc && loc.lat != null;
+
+    var stats = [
+      { n: list.length, label: 'Jiwa', hint: active + ' aktif' },
+      { n: hadir != null ? hadir + '%' : '–', label: 'Rata-rata kehadiran', hint: hadir != null ? 'dari ' + list.filter(function (p) { return p.attendancePct != null; }).length + ' orang' : 'belum ada data' },
+      { n: (counts.CGL || 0) + (counts.SPONSOR || 0), label: 'Leaders', hint: (counts.CGL || 0) + ' CGL · ' + (counts.SPONSOR || 0) + ' Sponsor' },
+      { n: growth != null ? growth + '%' : '–', label: 'Growth rata-rata', hint: '5M · MSJ · CGT' },
+    ];
+
+    var locBody = placed
+      ? '<div class="cg-info-main">' + esc(loc.place || 'Lokasi tersimpan') + '</div>' +
+        (loc.address ? '<div class="cg-info-sub">' + esc(loc.address) + '</div>' : '') +
+        '<div class="cg-info-actions"><a class="btn sm primary" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + loc.lat + ',' + loc.lng + '">' + IC.pin + 'Buka di Google Maps</a>' +
+        '<a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + loc.lat + ',' + loc.lng + '">' + IC.route + 'Rute</a>' +
+        (window.AOGLocations ? '<button class="btn sm" data-loc-show="' + esc(C.code) + '">Peta</button>' : '') + '</div>'
+      : '<div class="cg-info-main muted">' + (C.locations ? (mode && /^online$/i.test(mode) ? 'CG online' : 'Belum ada lokasi') : 'Memuat…') + '</div>' +
+        (C.locations && canEdit(list) && window.AOGLocations && !/^online$/i.test(mode || '')
+          ? '<div class="cg-info-actions"><button class="btn sm" data-loc-show="' + esc(C.code) + '">' + IC.pin + 'Atur lokasi</button></div>' : '');
+
+    var legend = A.POSITIONS.filter(function (p) { return counts[p.key]; }).map(function (p) {
+      return '<span><i style="background:' + p.color + '"></i>' + esc(p.label) + ' ' + counts[p.key] + '</span>';
+    }).join('');
+    var stack = '<div class="stack">' + A.POSITIONS.map(function (p) {
+      return counts[p.key] ? '<i style="width:' + (counts[p.key] / list.length * 100) + '%;background:' + p.color + '"></i>' : '';
+    }).join('') + '</div>';
+
+    box.innerHTML =
+      '<div class="cg-back-row"><button class="btn sm" data-cg-back>' + IC.back + 'Coach ' + esc(coach.name) + '</button></div>' +
+      '<section class="cg-hero">' +
+      '<div class="cg-hero-text"><div class="eyebrow">Connect Group · Coach ' + esc(coach.name) + '</div>' +
+      '<h1>' + esc(C.code) + '</h1>' +
+      '<p class="hero-sub">' + (cglRow ? 'CGL ' + esc(cglRow.name) : 'Belum ada CGL di database') + '</p>' +
+      (canEdit(list) ? '<button class="btn cg-edit-btn" data-cg-edit>' + IC.edit + 'Ubah info CG</button>' : '') + '</div>' +
+      '<div class="hero-stats">' + stats.map(function (s) {
+        return '<div class="stat"><div class="stat-num">' + s.n + '</div><div class="stat-label">' + esc(s.label) + '</div><div class="stat-hint">' + esc(s.hint) + '</div></div>';
+      }).join('') + '</div></section>' +
+      '<div class="cg-info-grid">' +
+      '<div class="panel cg-info"><div class="cg-info-icon">' + IC.clock + '</div><div class="cg-info-body"><div class="cg-info-label">Jadwal CG</div>' +
+      '<div class="cg-info-main">' + esc(time || 'Belum diisi') + '</div>' +
+      '<div class="cg-info-chips">' + (mode ? '<span class="badge line">' + IC.wifi + esc(mode) + '</span>' : '') +
+      (area ? '<span class="badge line">' + IC.pin + esc(area) + '</span>' : '') + '</div>' +
+      (cglRow ? '' : '<div class="cg-info-sub">Diambil dari data anggota (belum ada CGL).</div>') + '</div></div>' +
+      '<div class="panel cg-info"><div class="cg-info-icon">' + IC.pin + '</div><div class="cg-info-body"><div class="cg-info-label">Lokasi</div>' + locBody + '</div></div>' +
+      '<div class="panel cg-info"><div class="cg-info-icon">' + IC.users + '</div><div class="cg-info-body"><div class="cg-info-label">Komposisi</div>' +
+      stack + '<div class="legend">' + legend + '</div></div></div>' +
+      '</div>' +
+      '<div class="panel cg-panel"><div class="tabs cg-tabs" role="tablist"><span class="tab-ind"></span>' +
+      '<button class="tab' + (C.tab === 'people' ? ' active' : '') + '" data-cg-tab="people">Jemaat</button>' +
+      '<button class="tab' + (C.tab === 'growth' ? ' active' : '') + '" data-cg-tab="growth">Growth</button></div>' +
+      '<div class="tab-panel" id="cgTabPanel">' + (C.tab === 'people' ? peopleTab(list) : growthTab(list)) + '</div></div>';
+    requestAnimationFrame(moveIndicator);
+  }
+
+  function moveIndicator() {
+    var active = $('#cgView .tab.active'), ind = $('#cgView .tab-ind');
+    if (!active || !ind) return;
+    ind.style.width = active.offsetWidth + 'px';
+    ind.style.transform = 'translateX(' + (active.offsetLeft - 4) + 'px)';
+  }
+
+  function peopleTab(list) {
+    var counts = { ALL: list.length };
+    list.forEach(function (p) { counts[p.position] = (counts[p.position] || 0) + 1; });
+    var posChips = [{ key: 'ALL', label: 'Semua' }].concat(A.POSITIONS.filter(function (p) { return counts[p.key]; }))
+      .map(function (p) {
+        return '<button class="chip' + (C.pos === p.key ? ' active' : '') + '" data-cg-pos="' + p.key + '">' + esc(p.label) +
+          '<span class="count">' + counts[p.key] + '</span></button>';
+      }).join('');
+    var statusChips = [['ALL', 'Semua status'], ['ON', 'Aktif'], ['OFF', 'Non-Aktif']].map(function (s) {
+      return '<button class="chip' + (C.status === s[0] ? ' active' : '') + '" data-cg-status="' + s[0] + '">' + s[1] + '</button>';
+    }).join('');
+    var shown = list.filter(function (p) {
+      if (C.pos !== 'ALL' && p.position !== C.pos) return false;
+      if (C.status === 'ON' && !A.isActive(p)) return false;
+      if (C.status === 'OFF' && A.isActive(p)) return false;
+      return true;
+    });
+    return '<div class="filter-bar"><div class="chips">' + posChips + '</div><div class="chips">' + statusChips + '</div></div>' +
+      (shown.length ? '<div class="cg-people">' + shown.map(A.personRow).join('') + '</div>' : '<div class="empty">Tidak ada yang cocok dengan filter ini.</div>');
+  }
+
+  function growthTab(list) {
+    var ms = A.state.data.milestones, html = '', last = '';
+    ms.forEach(function (m, i) {
+      if (m.group !== last) { last = m.group; html += '<div class="ms-group-label">' + esc(m.group) + '</div>'; }
+      var missing = list.filter(function (p) { return !p.milestones[m.key]; });
+      var done = list.length - missing.length;
+      var pct = list.length ? Math.round(done / list.length * 100) : 0;
+      html += '<div class="ms-row' + (C.openMs === m.key ? ' open' : '') + '" style="animation-delay:' + i * 35 + 'ms">' +
+        '<button class="ms-head" data-cg-ms="' + m.key + '"><b>' + esc(m.label) + '</b>' +
+        '<div class="bar"><i style="width:' + Math.max(pct, 2) + '%"></i></div><span class="ms-pct">' + done + '/' + list.length + '</span></button>' +
+        '<div class="ms-body"><div>' + (missing.length
+          ? '<div class="cg-members"><span class="small muted" style="width:100%">Belum (' + missing.length + '):</span>' +
+            missing.map(function (p) {
+              return '<button class="mini-person" data-person="' + p.id + '"><span class="dot" style="background:' + A.posInfo(p.position).color + '">' +
+                esc(A.initials(p.name)) + '</span>' + esc(p.name.split(' ')[0]) + '</button>';
+            }).join('') + '</div>'
+          : '<div class="cg-members"><span class="small muted">Semua sudah 🎉</span></div>') + '</div></div></div>';
+    });
+    return html;
+  }
+
+  // ───────────── edit CG info ─────────────
+  function openForm() {
+    var list = members();
+    var f = C.form = {
+      time: A.cgInfo(list, 'cgTime'), mode: A.cgInfo(list, 'cgStatus'), area: A.cgInfo(list, 'cgArea'), saving: false,
+    };
+    f.original = { time: f.time, mode: f.mode, area: f.area };
+    var areas = {}, times = {};
+    (A.state.people || []).forEach(function (p) { if (p.cgArea) areas[p.cgArea] = 1; if (p.cgTime) times[p.cgTime] = 1; });
+    var modes = ['Onsite', 'Online', 'Onsite & Online'];
+    var cgl = list.filter(function (p) { return p.position === 'CGL'; })[0];
+    $('#cgModal').innerHTML =
+      '<div class="m-head"><div class="m-head-row"><div class="avatar lg">' + IC.clock + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">Info ' + esc(C.code) + '</div>' +
+      '<div class="m-sub">' + (cgl ? 'Disimpan di baris CGL ' + esc(cgl.name) + ' (baris ' + cgl.id + ')' : 'CG ini belum punya CGL di database') + '</div></div>' +
+      '<button class="close-btn dark" data-cg-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body"><div class="form-grid">' +
+      '<div class="field"><label for="cgTime">Waktu CG</label><input id="cgTime" list="cgTimes" maxlength="100" value="' + esc(f.time) + '" placeholder="mis. Kamis 19.30">' +
+      '<datalist id="cgTimes">' + Object.keys(times).sort().map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field"><label for="cgArea">Daerah CG</label><input id="cgArea" list="cgAreas" maxlength="100" value="' + esc(f.area) + '" placeholder="mis. Puri">' +
+      '<datalist id="cgAreas">' + Object.keys(areas).sort().map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field wide"><label>Status CG</label><div class="chips seg tight">' + modes.map(function (m) {
+        return '<button type="button" class="chip' + (f.mode === m ? ' active' : '') + '" data-cg-mode="' + esc(m) + '">' + esc(m) + '</button>';
+      }).join('') + '</div></div></div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="cgErr"></span><button type="button" class="btn" data-cg-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="cgSave"' + (cgl ? '' : ' disabled') + '><span class="spin"></span>' + IC.check + '<span id="cgSaveLabel">Simpan</span></button></div>';
+    $('#cgModalWrap').classList.add('open');
+    $('#cgModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+  }
+
+  function closeForm() {
+    if (!C.form || C.form.saving) return;
+    C.form = null;
+    $('#cgModalWrap').classList.remove('open');
+    $('#cgModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  function save() {
+    var f = C.form;
+    if (!f || f.saving) return;
+    var body = { cg: C.code };
+    if (f.time.trim() !== f.original.time) body.cgTime = f.time.trim();
+    if (f.mode !== f.original.mode) body.cgStatus = f.mode;
+    if (f.area.trim() !== f.original.area) body.cgArea = f.area.trim();
+    if (Object.keys(body).length === 1) { closeForm(); return; }
+    f.saving = true;
+    $('#cgSave').disabled = true;
+    $('#cgSave').classList.add('loading');
+    $('#cgSaveLabel').textContent = 'Menyimpan…';
+    A.api('updateCgInfo', body).then(function (res) {
+      f.saving = false;
+      closeForm();
+      A.applyData(res.data);
+      render();
+      A.toast('Info ' + C.code + ' tersimpan ✨');
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      $('#cgSave').disabled = false;
+      $('#cgSave').classList.remove('loading');
+      $('#cgSaveLabel').textContent = 'Simpan';
+      $('#cgErr').textContent = A.errText(err);
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-cg-open]')) && !t.closest('[data-person], [data-loc-show]')) return open(el.dataset.cgOpen);
+    if (t.closest('[data-cg-back]')) return back();
+    if (t.closest('[data-cg-edit]')) return openForm();
+    if ((el = t.closest('[data-cg-tab]'))) { C.tab = el.dataset.cgTab; return render(); }
+    if ((el = t.closest('[data-cg-pos]'))) { C.pos = el.dataset.cgPos; return render(); }
+    if ((el = t.closest('[data-cg-status]'))) { C.status = el.dataset.cgStatus; return render(); }
+    if ((el = t.closest('[data-cg-ms]'))) { C.openMs = C.openMs === el.dataset.cgMs ? '' : el.dataset.cgMs; return el.parentNode.classList.toggle('open'); }
+    if (!C.form) return;
+    if (t.closest('[data-cg-close]')) return closeForm();
+    if (t.closest('#cgSave')) return save();
+    if ((el = t.closest('[data-cg-mode]'))) {
+      C.form.mode = el.dataset.cgMode;
+      $$('#cgModal [data-cg-mode]').forEach(function (b) { b.classList.toggle('active', b.dataset.cgMode === C.form.mode); });
+    }
+  });
+
+  document.addEventListener('input', function (e) {
+    if (!C.form) return;
+    if (e.target.id === 'cgTime') C.form.time = e.target.value;
+    if (e.target.id === 'cgArea') C.form.area = e.target.value;
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (C.form && e.key === 'Escape') { e.stopPropagation(); closeForm(); }
+  }, true);
+
+  window.addEventListener('resize', function () { if (!$('#cgView').hidden) moveIndicator(); });
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.cg = function () { render(); if (!C.locations) loadLocations(); };
+  window.AOGCg = {
+    open: open,
+    /** Dashboard data changed (refresh or a save): redraw if the page is showing. */
+    onData: function () { if (!$('#cgView').hidden) render(); },
+    reset: function () {
+      C.code = ''; C.locations = null; C.form = null;
+      try { localStorage.removeItem(CG_KEY); } catch (e) { /* ignore */ }
+      $('#cgModalWrap').classList.remove('open');
+      $('#cgView').innerHTML = '';
+    },
+  };
+})();
+</script>

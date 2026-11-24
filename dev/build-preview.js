@@ -113,7 +113,8 @@ function main() {
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
       getLdpProgress: getLdpProgress, saveLdp: saveLdp,
-      getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation };
+      getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation,
+      updateCgInfo: updateCgInfo };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

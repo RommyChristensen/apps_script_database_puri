@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -609,6 +609,30 @@ test('domisili layer only counts people the session may see', () => {
   const total = (h) => h.reduce((n, x) => n + x.count, 0);
   assert.ok(mine.length > 0 && total(mine) < total(all));
   assert.ok(mine.every((h) => typeof h.lat === 'number' && !('names' in h)));
+});
+
+console.log('CG info');
+test('updateCgInfo writes schedule/status/area to the CGL row only', () => {
+  const s = boot(clone(base), { accounts: coachAccounts(), as: ['angie', 'angie-pass'] });
+  const people = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token).people;
+  const cgl = people.find((p) => p.coach === 'Angie' && p.position === 'CGL');
+  const member = people.find((p) => p.cg === cgl.cg && p.position !== 'CGL' && !p.isCoach);
+  const H = s.grid[3];
+  const res = s.raw.updateCgInfo(s.token, { cg: cgl.cg, cgTime: 'Jumat 19.30', cgStatus: 'Online', cgArea: 'Puri Indah' });
+  assert.deepStrictEqual(clone(res.changes.map((c) => c.label)), ['Waktu CG', 'Status CG', 'Daerah CG']);
+  const row = s.grid[cgl.id - 1];
+  assert.deepStrictEqual([row[H.indexOf('WAKTU CG')], row[H.indexOf('STATUS CG')], row[H.indexOf('DAERAH CG')]], ['Jumat 19.30', 'Online', 'Puri Indah']);
+  assert.notStrictEqual(s.grid[member.id - 1][H.indexOf('WAKTU CG')], 'Jumat 19.30', 'members\' rows untouched');
+  assert.throws(() => s.raw.updateCgInfo(s.token, { cg: cgl.cg, cgStatus: 'Hybrid' }), /Status CG harus/);
+  const carla = people.find((p) => p.coach === 'Carla' && p.cg);
+  assert.throws(() => s.raw.updateCgInfo(s.token, { cg: carla.cg, cgTime: 'x' }), /coach kamu/);
+  assert.throws(() => s.raw.updateCgInfo(s.token, { cg: 'AOG 99', cgTime: 'x' }), /tidak ditemukan/);
+});
+
+test('the person edit form does not offer the CG fields', () => {
+  const s = boot(clone(base));
+  const d = s.api.getDashboardData();
+  assert.deepStrictEqual(clone(d.editableFields.filter((f) => f.section === 'cg').map((f) => f.key)), ['cgTime', 'cgStatus', 'cgArea']);
 });
 
 const csv = process.argv[2];

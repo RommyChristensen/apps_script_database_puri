@@ -198,6 +198,9 @@
       <div id="ldpList" class="ldp-list"></div>
     </main>
 
+    <!-- CG overview (opened from a CG card in the coach drawer; not in the menu) -->
+    <main id="cgView" class="meetings-view cg-view" data-view="cg" hidden></main>
+
     <!-- Lokasi -->
     <main id="locView" class="meetings-view loc-view" data-view="locations" hidden>
       <section class="mt-head">
@@ -255,6 +258,12 @@
       <div class="modal mt-modal" role="dialog" aria-modal="true" id="ldpModal"></div>
     </div>
 
+    <!-- CG info edit -->
+    <div class="modal-wrap mt-wrap" id="cgModalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-cg-close></div>
+      <div class="modal mt-modal" role="dialog" aria-modal="true" id="cgModal"></div>
+    </div>
+
     <!-- Lokasi edit -->
     <div class="modal-wrap mt-wrap" id="locModalWrap" aria-hidden="true">
       <div class="modal-scrim" data-loc-close></div>
@@ -267,5 +276,6 @@
     <?!= include('MeetingsUi'); ?>
     <?!= include('LdpUi'); ?>
     <?!= include('LocationsUi'); ?>
+    <?!= include('CgUi'); ?>
   </body>
 </html>

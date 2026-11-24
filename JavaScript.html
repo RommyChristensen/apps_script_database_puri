@@ -172,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -214,6 +214,7 @@
     renderCoaches();
     renderComposition();
     renderGaps();
+    if (window.AOGCg) window.AOGCg.onData();
     if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
     if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
     if (!quiet && window.AOGLocations) window.AOGLocations.onDashboard();
@@ -249,7 +250,7 @@
       return {
         code: code, people: list,
         cgl: (leader && leader.name) || first.cgl || '',
-        time: first.cgTime, area: first.cgArea, mode: first.cgStatus,
+        time: cgInfo(list, 'cgTime'), area: cgInfo(list, 'cgArea'), mode: cgInfo(list, 'cgStatus'),
         active: list.filter(isActive).length,
         attendance: avgAttendance(list),
       };
@@ -367,6 +368,22 @@
   }
 
   // ───────────── Drawer ─────────────
+  /**
+   * A CG's schedule / status / area: taken from the CGL's row; without a CGL
+   * (or an empty cell there), the most common value among the members.
+   */
+  function cgInfo(list, key) {
+    var cgl = list.filter(function (p) { return p.position === 'CGL' && p[key]; })[0];
+    if (cgl) return cgl[key];
+    var counts = {}, best = '', n = 0;
+    list.forEach(function (p) {
+      if (!p[key]) return;
+      counts[p[key]] = (counts[p[key]] || 0) + 1;
+      if (counts[p[key]] > n) { n = counts[p[key]]; best = p[key]; }
+    });
+    return best;
+  }
+
   function openCoach(key) {
     state.drawer = { coach: key, tab: 'cg', pos: 'ALL', status: 'ALL' };
     renderDrawer();
@@ -452,10 +469,14 @@
       meta.push('<span>' + ICON.users + g.people.length + ' orang · ' + g.active + ' aktif</span>');
       if (window.AOGLocations && g.code !== 'Tanpa CG') meta.push('<button class="link-btn cg-map-link" data-loc-show="' + esc(g.code) + '">' + ICON.pin + 'Peta</button>');
       if (g.attendance != null) meta.push('<span>' + ICON.check + 'rata-rata hadir ' + g.attendance + '%</span>');
-      return '<div class="cg-card" style="animation-delay:' + (i * 50) + 'ms"><div class="cg-top">' +
-        '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0">' +
+      var canOpen = window.AOGCg && g.code !== 'Tanpa CG';
+      return '<div class="cg-card' + (canOpen ? ' clickable' : '') + '" style="animation-delay:' + (i * 50) + 'ms"' +
+        (canOpen ? ' data-cg-open="' + esc(g.code) + '"' : '') + '><div class="cg-top">' +
+        '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0;flex:1">' +
         '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + '</div>' +
-        '<div class="cg-meta">' + meta.join('') + '</div></div></div>' +
+        '<div class="cg-meta">' + meta.join('') + '</div></div>' +
+        (canOpen ? '<button class="btn sm cg-open-btn" data-cg-open="' + esc(g.code) + '">Lihat CG' + ICON.arrow + '</button>' : '') +
+        '</div>' +
         '<div class="cg-members">' + g.people.map(miniPerson).join('') + '</div></div>';
     }).join('');
   }
@@ -967,6 +988,7 @@
     if (window.AOGMeetings) window.AOGMeetings.reset();
     if (window.AOGLdp) window.AOGLdp.reset();
     if (window.AOGLocations) window.AOGLocations.reset();
+    if (window.AOGCg) window.AOGCg.reset();
     showLogin(message);
   }
 
@@ -1082,6 +1104,8 @@
   window.AOG = {
     $: $, $$: $$, esc: esc, initials: initials, api: api, state: state, toast: toast, ICON: ICON,
     posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson, posBadge: posBadge,
+    openCoach: openCoach, closeDrawer: closeDrawer, personRow: personRow, msPct: msPct, cgInfo: cgInfo,
+    POSITIONS: POSITIONS, isActive: isActive,
     parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
     /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */
     applyData: function (data) { onData(data, false, true); },
