@@ -3,6 +3,10 @@
 A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 `[DATABASE] AOG YOUTH PURI 01`) and shows it grouped by **Coach → CG → Jemaat**.
 
+- **Login per coach**: each coach signs in with a username and password from the
+  **Authentication** tab and only sees (and can only edit) the people of their own coach group.
+  Admin accounts (the team leader) see every coach.
+
 - **Coach cards**: number of people, number of CGs, % active, position mix and average growth
 - **Coach drawer** (slides in): tabs for CG (members per group), Jemaat (filter by position/status) and Growth (5M / MSJ / CGT completion, click to see who hasn't finished)
 - **Person modal**: growth journey, path (Member → Sponsor → CGL → Coach), personal info, notes, plus WhatsApp / call / email buttons and a link to the person's row in the sheet
@@ -17,30 +21,44 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 | File | Purpose |
 | --- | --- |
-| `Code.gs` | `doGet`, `getDashboardData`, and the sheet parser (finds columns by header name) |
+| `Code.gs` | `doGet`, `getDashboardData`, `updatePerson`, and the sheet parser (finds columns by header name) |
+| `Auth.gs` | Login, password hashing, sessions, and the per-coach access checks |
 | `Index.html` / `Stylesheet.html` / `JavaScript.html` | UI (white, blue and sky-blue theme, animated drawer and modal) |
-| `appsscript.json` | Manifest: read-only Sheets scope, web app settings |
+| `appsscript.json` | Manifest: Sheets scope, web app runs as the owner, open to anyone (login required inside) |
 | `dev/build-preview.js` | Builds `dev/preview.html`: the real `Code.gs` running in the browser on a fake sheet |
-| `dev/mock-apps-script.js`, `dev/test.js` | Mock SpreadsheetApp + tests for the parser and for saving |
+| `dev/mock-apps-script.js`, `dev/test.js` | Mock Apps Script services + tests for the parser, saving and login |
 
 ## Deploy (copy and paste, about 5 minutes)
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   `Code.gs`, plus HTML files named `Index`, `Stylesheet` and `JavaScript`.
+   script files `Code` and `Auth`, plus HTML files named `Index`, `Stylesheet` and `JavaScript`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
-4. **Deploy → New deployment** → type **Web app**:
-   - *Execute as*: **User accessing the web app**
-   - *Who has access*: **Anyone with Google account**
-5. **Deploy**, authorize, and copy the `/exec` URL. That's the dashboard link.
+4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
+   - *Execute as*: **Me** (the spreadsheet owner)
+   - *Who has access*: **Anyone**
+5. **Deploy**, authorize, and copy the `/exec` URL. That's the dashboard link for every coach.
 
-> 🔒 Because it runs as the *user accessing*, only people who already have
-> access to the spreadsheet can see the data. Everyone else gets an error card.
-> To give a coach access, share the spreadsheet with them (Viewer is enough).
+## Logins (Authentication tab)
 
-> ✏️ **Editing** needs **Editor** access to the spreadsheet. A Viewer can still open the dashboard
-> but gets the error "tidak punya akses edit" when saving. Because the app now has write
-> permission, everyone is asked to **authorize again** the first time they open the new version.
+| USERNAME | PASSWORD | COACH | ROLE | CATATAN |
+| --- | --- | --- | --- | --- |
+| rommy | *(type one)* | | ADMIN | sees every coach |
+| angie | *(type one)* | Angie | COACH | sees only COACH = Angie |
+
+- **COACH** must match the value in the database's COACH column (capitals don't matter).
+- **ROLE**: `COACH` (default), `ADMIN` (sees everyone and gets the spreadsheet links), or `NONAKTIF` (blocked).
+- **Passwords**: type them in plain text. After the person's first successful login the app replaces the
+  password with a salted hash (`sha256$…`), so the tab never keeps readable passwords. To **reset** a
+  password, type a new one over the hash. An empty password means the account can't sign in.
+- Changing someone's password, COACH or ROLE **signs them out** on every device straight away.
+- Sessions last 6 hours from the last activity. After 5 wrong passwords a username is locked for 15 minutes.
+- Every edit in the **Edit Log** tab records who made it, e.g. `angie (coach Angie)`.
+
+> 🔒 **Why the app runs as you now.** The server checks the login and only sends each coach their own
+> people. That protection only works if coaches can't simply open the spreadsheet. **Remove coaches'
+> direct access to the spreadsheet** (Share → remove, or keep only people who should see everything).
+> They don't need it anymore: the app reads and writes the sheet on your behalf.
 
 ### How saving works
 - Only cells that **actually changed** are written. Other columns (including AGE / ELIGIBLE formulas) are never touched.

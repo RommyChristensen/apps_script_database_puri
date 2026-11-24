@@ -9,14 +9,34 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+const code = ['Code.gs', 'Auth.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
+const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
+const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
+
+/**
+ * Loads Code.gs + Auth.gs against a mock spreadsheet. `api` is signed in as
+ * `opts.as` (default: an admin) so the older tests see everything; `raw`
+ * exposes the real server functions for the auth tests.
+ */
 function boot(values, opts) {
-  const mocks = createMockServices(values, opts);
-  const ctx = { SpreadsheetApp: mocks.SpreadsheetApp, LockService: mocks.LockService, Session: mocks.Session, HtmlService: {}, console };
+  opts = Object.assign({}, opts);
+  const accounts = opts.accounts || defaultAccounts();
+  const mocks = createMockServices(values, Object.assign({}, opts, { sheets: { Authentication: accounts } }));
+  const ctx = {
+    SpreadsheetApp: mocks.SpreadsheetApp, LockService: mocks.LockService, Session: mocks.Session,
+    CacheService: mocks.CacheService, Utilities: mocks.Utilities, HtmlService: {}, console,
+  };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.api = { getDashboardData, updatePerson, MILESTONES };', ctx);
-  return { api: ctx.api, mocks, grid: values };
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, MILESTONES };', ctx);
+  const [user, pass] = opts.as || ['admin', 'admin-pass'];
+  const token = ctx.raw.login(user, pass).token;
+  mocks.writes.length = 0; // ignore the password-hash write from this setup login
+  const api = {
+    getDashboardData: () => ctx.raw.getDashboardData(token),
+    updatePerson: (p) => ctx.raw.updatePerson(token, p),
+  };
+  return { api, raw: ctx.raw, token, mocks, grid: values, auth: accounts };
 }
 const clone = (v) => JSON.parse(JSON.stringify(v));
 let passed = 0;
@@ -231,6 +251,105 @@ test('team leader row is not grouped under a coach; attendance is parsed', () =>
   assert.ok(r.isLeader && r.isCoach && r.coach === '');
   const m = d.people.find((x) => x.id === target + 1);
   assert.strictEqual(m.attendance, 15); assert.strictEqual(m.attendancePct, 94);
+});
+
+console.log('Auth.gs');
+const coachAccounts = () => [AUTH_HEADER,
+  ['admin', 'admin-pass', '', 'ADMIN'],
+  ['angie', 'angie-pass', 'Angie', 'COACH'],
+  ['lenita', 'lenita-pass', 'lenita', ''],
+  ['old', 'x', 'Carla', 'NONAKTIF'],
+  ['nopass', '', 'Carla', 'COACH']];
+
+test('login: wrong password, unknown user, disabled and empty-password accounts are refused', () => {
+  const s = boot(clone(base), { accounts: coachAccounts() });
+  assert.throws(() => s.raw.login('angie', 'nope'), /salah/);
+  assert.throws(() => s.raw.login('ghost', 'x'), /salah/);
+  assert.throws(() => s.raw.login('old', 'x'), /salah/);
+  assert.throws(() => s.raw.login('nopass', ''), /Isi username/);
+  assert.ok(s.raw.login('ANGIE ', 'angie-pass').token, 'username is case-insensitive and trimmed');
+});
+
+test('plain-text password is replaced by a salted hash after the first login, and still works', () => {
+  const s = boot(clone(base), { accounts: coachAccounts() });
+  s.raw.login('angie', 'angie-pass');
+  const stored = s.auth[2][1];
+  assert.match(stored, /^sha256\$[0-9a-f]{16}\$[0-9a-f]{64}$/);
+  assert.ok(!stored.includes('angie-pass'));
+  assert.ok(s.raw.login('angie', 'angie-pass').token);
+  assert.throws(() => s.raw.login('angie', stored), /salah/, 'the hash itself is not a password');
+});
+
+test('5 wrong passwords lock the username', () => {
+  const s = boot(clone(base), { accounts: coachAccounts() });
+  for (let i = 0; i < 5; i++) assert.throws(() => s.raw.login('angie', 'bad'), /salah/);
+  assert.throws(() => s.raw.login('angie', 'angie-pass'), /Terlalu banyak/);
+});
+
+test('a coach only receives their own people; admin receives everyone', () => {
+  const s = boot(clone(base), { accounts: coachAccounts(), as: ['angie', 'angie-pass'] });
+  const d = s.api.getDashboardData();
+  assert.ok(d.people.length > 0);
+  assert.ok(d.people.every((p) => p.coach === 'Angie'), 'only Angie');
+  assert.deepStrictEqual(clone(d.coaches.map((c) => c.name)), ['Angie']);
+  assert.strictEqual(d.spreadsheetUrl, '', 'no spreadsheet link for coaches');
+  assert.deepStrictEqual(clone(d.user), { username: 'angie', coach: 'Angie', isAdmin: false });
+  const all = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token);
+  assert.strictEqual(all.coaches.length, 5);
+  assert.ok(all.people.length > d.people.length);
+  assert.ok(all.user.isAdmin && all.spreadsheetUrl);
+});
+
+test('coach names in the account are matched case-insensitively', () => {
+  const s = boot(clone(base), { accounts: coachAccounts(), as: ['lenita', 'lenita-pass'] });
+  assert.ok(s.api.getDashboardData().people.every((p) => p.coach === 'Lenita'));
+});
+
+test('a coach cannot edit people of another coach, or coach rows', () => {
+  const s = boot(clone(base), { accounts: coachAccounts(), as: ['angie', 'angie-pass'] });
+  const all = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token).people;
+  const other = all.find((p) => p.coach === 'Carla' && !p.isCoach);
+  assert.throws(() => s.api.updatePerson({ id: other.id, name: other.name, position: 'CGL' }), /tidak punya akses/);
+  const coachRow = all.find((p) => p.coach === 'Angie' && p.isCoach);
+  assert.throws(() => s.api.updatePerson({ id: coachRow.id, name: coachRow.name, gender: 'Male' }), /tidak punya akses/);
+  const mine = all.find((p) => p.coach === 'Angie' && !p.isCoach && p.position !== 'CGL');
+  const res = s.api.updatePerson({ id: mine.id, name: mine.name, position: 'CGL' });
+  assert.strictEqual(res.changes.length, 1);
+  assert.ok(res.data.people.every((p) => p.coach === 'Angie'), 'refreshed data is still filtered');
+  const log = s.mocks.spreadsheet.getSheetByName('Edit Log');
+  assert.match(log._grid[1][1], /angie \(coach Angie\)/);
+});
+
+test('missing, unknown and logged-out tokens are rejected with AUTH:', () => {
+  const s = boot(clone(base), { accounts: coachAccounts() });
+  assert.throws(() => s.raw.getDashboardData(''), /^Error: AUTH:/);
+  assert.throws(() => s.raw.getDashboardData('made-up'), /AUTH:/);
+  assert.throws(() => s.raw.updatePerson('made-up', { id: 7, name: 'x' }), /AUTH:/);
+  const t = s.raw.login('angie', 'angie-pass').token;
+  s.raw.logout(t);
+  assert.throws(() => s.raw.getDashboardData(t), /AUTH:/);
+});
+
+test('changing the password, coach or role in the tab ends existing sessions', () => {
+  const s = boot(clone(base), { accounts: coachAccounts() });
+  const t = s.raw.login('angie', 'angie-pass').token;
+  assert.ok(s.raw.getDashboardData(t));
+  s.auth[2][2] = 'Carla'; // moved to another coach
+  assert.throws(() => s.raw.getDashboardData(t), /AUTH:/);
+  s.auth[2][2] = 'Angie';
+  const t2 = s.raw.login('angie', 'angie-pass').token;
+  s.auth[2][1] = 'new-pass'; // password reset
+  assert.throws(() => s.raw.getDashboardData(t2), /AUTH:/);
+  assert.ok(s.raw.login('angie', 'new-pass').token);
+});
+
+test('a missing Authentication tab gives a clear setup error', () => {
+  const mocks = createMockServices(clone(base));
+  const ctx = { SpreadsheetApp: mocks.SpreadsheetApp, LockService: mocks.LockService, Session: mocks.Session,
+    CacheService: mocks.CacheService, Utilities: mocks.Utilities, HtmlService: {}, console };
+  vm.createContext(ctx);
+  vm.runInContext(code + '\nthis.raw = { login };', ctx);
+  assert.throws(() => ctx.raw.login('a', 'b'), /Authentication" belum ada/);
 });
 
 const csv = process.argv[2];

@@ -43,7 +43,34 @@
     drawer: { coach: null, tab: 'cg', pos: 'ALL', status: 'ALL' },
     search: { results: [], active: -1 },
     edit: null, // { id, draft: { milestones, position, ...fields }, saving }
+    token: '',
   };
+
+  // ───────────── Session ─────────────
+  var TOKEN_KEY = 'aogpuri.session';
+  function readToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
+  }
+  function saveToken(t) {
+    state.token = t || '';
+    try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) { /* private mode */ }
+  }
+  function errText(err) {
+    return String((err && err.message) || err || '').replace(/^(Exception|Error):\s*/, '');
+  }
+
+  /** Server call that sends the session token and returns to the login screen when it's rejected. */
+  function api(fn) {
+    var args = [fn, state.token].concat(Array.prototype.slice.call(arguments, 1));
+    return callServer.apply(null, args).catch(function (err) {
+      var msg = errText(err);
+      if (msg.indexOf('AUTH:') >= 0) {
+        signOut(msg.replace(/^.*AUTH:\s*/, ''));
+        err.isAuth = true;
+      }
+      throw err;
+    });
+  }
 
   /** Promise wrapper around google.script.run. */
   function callServer(fn) {
@@ -142,8 +169,12 @@
 
   // ───────────── Data ─────────────
   function load(isRefresh) {
+    if (!state.token) { showLogin(''); return; }
     $('#refreshBtn').classList.add('spinning');
-    callServer('getDashboardData').then(function (d) { onData(d, isRefresh); }, onError);
+    api('getDashboardData').then(function (d) { onData(d, isRefresh); }, function (err) {
+      $('#refreshBtn').classList.remove('spinning');
+      if (!err.isAuth) onError(err);
+    });
   }
 
   function onError(err) {
@@ -152,8 +183,8 @@
     $('#heroStats').innerHTML = '';
     $('#coachGrid').innerHTML =
       '<div class="error-card" style="grid-column:1/-1"><b>Data tidak bisa dimuat.</b><br><span class="small">' +
-      esc(err && err.message ? err.message : err) +
-      '</span><br><br><span class="small muted">Pastikan akun Google kamu punya akses ke spreadsheet database.</span></div>';
+      esc(errText(err)) +
+      '</span><br><br><span class="small muted">Coba refresh. Kalau masih gagal, hubungi team leader.</span></div>';
   }
 
   function onData(data, isRefresh) {
@@ -164,7 +195,10 @@
     data.people.forEach(function (p) { state.byId[p.id] = p; });
     state.coaches = data.coaches.map(buildCoach);
 
-    $('#sheetLink').href = data.spreadsheetUrl;
+    $('#sheetLink').href = data.spreadsheetUrl || '#';
+    $('#sheetLink').style.display = data.spreadsheetUrl ? '' : 'none';
+    renderUser(data.user);
+    enterApp();
     $('#brandSub').textContent = 'Coach Dashboard · ' + data.sheetName;
     renderHero();
     renderWarnings();
@@ -234,7 +268,8 @@
     var sponsor = members.filter(function (p) { return p.position === 'SPONSOR'; }).length;
     var serving = members.filter(function (p) { return !!p.ministry; }).length;
 
-    $('#heroEyebrow').textContent = 'Live · ' + state.coaches.length + ' coach';
+    var u = state.data.user || {};
+    $('#heroEyebrow').textContent = u.isAdmin ? 'Live · ' + state.coaches.length + ' coach' : 'Live · Coach ' + (u.coach || '');
     var tl = state.data.teamLeaders || [];
     $('#heroSub').textContent = (tl.length ? 'Team Leader: ' + tl.join(', ') + '. ' : '') +
       'Ringkasan jemaat per coach, CG, dan perjalanan bertumbuh.';
@@ -628,7 +663,7 @@
     });
     e.saving = true;
     updateEditUi();
-    callServer('updatePerson', payload).then(function (res) {
+    api('updatePerson', payload).then(function (res) {
       state.edit = null;
       onData(res.data, false);
       var fresh = state.byId[p.id];
@@ -642,9 +677,10 @@
       var n = res.changes.length;
       toast(n ? 'Tersimpan · ' + n + ' perubahan ✨' : 'Tidak ada yang berubah');
     }, function (err) {
+      if (err.isAuth) return;
       e.saving = false;
       updateEditUi();
-      var msg = (err && err.message) || String(err);
+      var msg = errText(err);
       if (/permission|izin|access|akses/i.test(msg)) msg = 'Kamu tidak punya akses edit ke spreadsheet ini.';
       toast('Gagal menyimpan: ' + msg, true);
     });
@@ -788,7 +824,9 @@
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
     if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
     if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
-    actions.push('<a class="btn" href="' + esc(state.data.spreadsheetUrl + '&range=A' + p.id) + '" target="_blank" rel="noopener">' + ICON.sheet + 'Baris ' + p.id + '</a>');
+    if (state.data.spreadsheetUrl) {
+      actions.push('<a class="btn" href="' + esc(state.data.spreadsheetUrl + '&range=A' + p.id) + '" target="_blank" rel="noopener">' + ICON.sheet + 'Baris ' + p.id + '</a>');
+    }
 
     var elig = [['eligibleCgl', 'Eligible CGL'], ['eligibleCoach', 'Eligible Coach'], ['eligibleTl', 'Eligible TL']]
       .filter(function (e) { return /^yes$/i.test(p[e[0]]); })
@@ -875,6 +913,93 @@
     items[state.search.active].scrollIntoView({ block: 'nearest' });
   }
 
+  // ───────────── Login ─────────────
+  function renderUser(user) {
+    user = user || {};
+    var label = user.isAdmin ? user.username + ' · Admin' : 'Coach ' + (user.coach || user.username);
+    $('#userName').textContent = label;
+    $('#userAvatar').textContent = initials(user.coach || user.username);
+    $('#userChip').title = 'Masuk sebagai ' + user.username;
+  }
+
+  function showLogin(message) {
+    var screen = $('#authScreen');
+    document.body.classList.add('signed-out');
+    screen.classList.remove('checking', 'leaving');
+    $('#loginError').textContent = message || '';
+    $('#loginPass').value = '';
+    setTimeout(function () { ($('#loginUser').value ? $('#loginPass') : $('#loginUser')).focus(); }, 50);
+  }
+
+  function enterApp() {
+    if (!document.body.classList.contains('signed-out')) return;
+    var screen = $('#authScreen');
+    screen.classList.add('leaving');
+    setTimeout(function () {
+      document.body.classList.remove('signed-out');
+      screen.classList.remove('leaving');
+    }, 350);
+  }
+
+  /** Drops the session and everything loaded with it, then shows the login form. */
+  function signOut(message) {
+    saveToken('');
+    state.edit = null;
+    state.data = null; state.people = []; state.byId = {}; state.coaches = [];
+    $('#modalWrap').classList.remove('open');
+    closeDrawer();
+    closeSearch();
+    $('#searchInput').value = '';
+    $('#coachGrid').innerHTML = '';
+    showLogin(message);
+  }
+
+  function setLoginBusy(busy) {
+    $('#loginBtn').disabled = busy;
+    $('#loginBtn').classList.toggle('loading', busy);
+    $('#loginLabel').textContent = busy ? 'Memeriksa…' : 'Masuk';
+  }
+
+  $('#loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var user = $('#loginUser').value.trim();
+    var pass = $('#loginPass').value;
+    if (!user || !pass) { $('#loginError').textContent = 'Isi username dan password.'; shake(); return; }
+    $('#loginError').textContent = '';
+    setLoginBusy(true);
+    callServer('login', user, pass).then(function (res) {
+      setLoginBusy(false);
+      saveToken(res.token);
+      $('#loginPass').value = '';
+      load(false);
+    }, function (err) {
+      setLoginBusy(false);
+      $('#loginError').textContent = errText(err);
+      $('#loginPass').select();
+      shake();
+    });
+  });
+
+  function shake() {
+    var card = $('#authCard');
+    card.classList.remove('shake');
+    void card.offsetWidth;
+    card.classList.add('shake');
+  }
+
+  $('#togglePass').addEventListener('click', function () {
+    var input = $('#loginPass');
+    input.type = input.type === 'password' ? 'text' : 'password';
+    input.focus();
+  });
+
+  $('#logoutBtn').addEventListener('click', function () {
+    if (state.edit && !confirmDiscard()) return;
+    var t = state.token;
+    if (t) callServer('logout', t).catch(function () { /* already gone */ });
+    signOut('Kamu sudah keluar.');
+  });
+
   // ───────────── Events ─────────────
   document.addEventListener('click', function (e) {
     var t = e.target;
@@ -927,7 +1052,8 @@
       if (state.edit && $('#modalWrap').classList.contains('open')) { if (!state.edit.saving) cancelEdit(); }
       else if ($('#modalWrap').classList.contains('open')) closeModal();
       else if ($('#drawer').classList.contains('open')) closeDrawer();
-    } else if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    } else if (e.key === '/' && !document.body.classList.contains('signed-out') &&
+      !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
       e.preventDefault();
       searchInput.focus();
     }
@@ -936,6 +1062,7 @@
   window.addEventListener('resize', moveTabIndicator);
   $('#refreshBtn').addEventListener('click', function () { load(true); });
 
-  load(false);
+  saveToken(readToken());
+  if (state.token) load(false); else showLogin('');
 })();
 </script>

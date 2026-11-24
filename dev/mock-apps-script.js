@@ -1,7 +1,9 @@
 /**
- * Minimal in-memory stand-ins for the Apps Script services used by Code.gs
- * (SpreadsheetApp, LockService, Session). Used by dev/build-preview.js and
- * dev/test.js only — never deployed.
+ * Minimal in-memory stand-ins for the Apps Script services used by Code.gs and
+ * Auth.gs (SpreadsheetApp, LockService, Session, CacheService, Utilities).
+ * Used by dev/build-preview.js and dev/test.js only — never deployed.
+ *
+ * opts.sheets adds more tabs after the database tab: { 'Authentication': [[...], ...] }.
  *
  * Works in Node (module.exports) and in the browser (window.createMockServices).
  */
@@ -55,6 +57,15 @@
     }
 
     var sheets = [makeSheet(opts.sheetName || 'Database', 0, values)];
+    Object.keys(opts.sheets || {}).forEach(function (name, i) { sheets.push(makeSheet(name, i + 1, opts.sheets[name])); });
+
+    var cacheStore = {};
+    var cache = {
+      get: function (k) { return Object.prototype.hasOwnProperty.call(cacheStore, k) ? cacheStore[k] : null; },
+      put: function (k, v) { cacheStore[k] = String(v); },
+      remove: function (k) { delete cacheStore[k]; },
+    };
+    var uuidCounter = 0;
     var ss = {
       getSheets: function () { return sheets.slice(); },
       getSheetByName: function (n) { return sheets.filter(function (s) { return s.getName() === n; })[0] || null; },
@@ -77,9 +88,60 @@
       LockService: { getScriptLock: function () { return { tryLock: function () { return true; }, releaseLock: function () {} }; } },
       Session: { getActiveUser: function () { return { getEmail: function () { return opts.email || 'preview@example.com'; } }; } },
       HtmlService: {},
+      cacheStore: cacheStore,
+      CacheService: { getScriptCache: function () { return cache; } },
+      Utilities: {
+        DigestAlgorithm: { SHA_256: 'SHA_256' },
+        Charset: { UTF_8: 'UTF_8' },
+        getUuid: function () {
+          var hex = '';
+          for (var i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+          uuidCounter++;
+          return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-4' + hex.slice(13, 16) + '-a' + hex.slice(17, 20) + '-' + hex.slice(20, 32);
+        },
+        // Like Apps Script: an array of signed bytes.
+        computeDigest: function (alg, text) {
+          return sha256Bytes(unescape(encodeURIComponent(text))).map(function (b) { return b > 127 ? b - 256 : b; });
+        },
+      },
     };
   }
 
+  /** Plain SHA-256 over a binary string, returning byte values 0..255. */
+  function sha256Bytes(str) {
+    var K = [], H = [], i, j;
+    var isPrime = function (n) { for (var f = 2; f * f <= n; f++) if (n % f === 0) return false; return true; };
+    var frac = function (x) { return ((x - Math.floor(x)) * 4294967296) >>> 0; };
+    for (var n = 2, c = 0; c < 64; n++) if (isPrime(n)) { if (c < 8) H[c] = frac(Math.pow(n, 1 / 2)); K[c++] = frac(Math.pow(n, 1 / 3)); }
+    var bytes = [];
+    for (i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i) & 0xff);
+    var bitLen = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (bitLen >>> (i * 8)) & 0xff);
+    var rotr = function (x, r) { return (x >>> r) | (x << (32 - r)); };
+    for (i = 0; i < bytes.length; i += 64) {
+      var w = [];
+      for (j = 0; j < 16; j++) w[j] = (bytes[i + 4 * j] << 24) | (bytes[i + 4 * j + 1] << 16) | (bytes[i + 4 * j + 2] << 8) | bytes[i + 4 * j + 3];
+      for (j = 16; j < 64; j++) {
+        var s0 = rotr(w[j - 15], 7) ^ rotr(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+        var s1 = rotr(w[j - 2], 17) ^ rotr(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+        w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], cc = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (j = 0; j < 64; j++) {
+        var t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[j] + w[j]) | 0;
+        var t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & cc) ^ (b & cc))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = cc; cc = b; b = a; a = (t1 + t2) | 0;
+      }
+      H = [H[0] + a, H[1] + b, H[2] + cc, H[3] + d, H[4] + e, H[5] + f, H[6] + g, H[7] + h].map(function (x) { return x | 0; });
+    }
+    var out = [];
+    H.forEach(function (x) { out.push((x >>> 24) & 0xff, (x >>> 16) & 0xff, (x >>> 8) & 0xff, x & 0xff); });
+    return out;
+  }
+
+  createMockServices.sha256Bytes = sha256Bytes;
   if (typeof module !== 'undefined' && module.exports) module.exports = createMockServices;
   else root.createMockServices = createMockServices;
 })(this);

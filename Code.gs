@@ -2,7 +2,9 @@
  * AOG Youth Puri — Coach Dashboard (Apps Script Web App)
  *
  * Reads the merged DATABASE tab (first tab by default) and serves a
- * read-only dashboard grouped by coach → CG → people.
+ * dashboard grouped by coach → CG → people. Coaches sign in with the
+ * accounts in the Authentication tab (see Auth.gs) and only ever receive
+ * the people of their own coach group.
  */
 
 const CONFIG = {
@@ -15,6 +17,8 @@ const CONFIG = {
   // Every edit made from the dashboard is appended to this tab (created
   // automatically as the LAST tab). Leave blank to disable the log.
   LOG_SHEET_NAME: 'Edit Log',
+  // Usernames and passwords for the coaches (see Auth.gs).
+  AUTH_SHEET_NAME: 'Authentication',
 };
 
 /** Values allowed in the POSISI column when editing. */
@@ -143,25 +147,38 @@ function getDatabaseSheet_(ss) {
   return sheet;
 }
 
-/** Called from the browser via google.script.run. */
-function getDashboardData() {
+/** Called from the browser via google.script.run. Requires a login token. */
+function getDashboardData(token) {
   const ss = getSpreadsheet_();
-  const sheet = getDatabaseSheet_(ss);
+  return buildDashboard_(ss, requireSession_(token, ss));
+}
 
+/** The dashboard payload, limited to what this session may see. */
+function buildDashboard_(ss, session) {
+  const sheet = getDatabaseSheet_(ss);
   const parsed = parseDatabase_(sheet.getDataRange().getDisplayValues());
+  const isAdmin = session.role === 'ADMIN';
+  const people = isAdmin ? parsed.people : parsed.people.filter(function (p) {
+    return !p.isLeader && canAccessCoach_(session, p.coach);
+  });
+  const coaches = isAdmin ? parsed.coaches : parsed.coaches.filter(function (c) {
+    return canAccessCoach_(session, c.key);
+  });
   return {
+    user: publicUser_(session),
     generatedAt: new Date().toISOString(),
     sheetName: sheet.getName(),
-    spreadsheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
+    // Coaches don't have access to the spreadsheet itself, so they get no link to it.
+    spreadsheetUrl: isAdmin ? ss.getUrl() + '#gid=' + sheet.getSheetId() : '',
     milestones: MILESTONES.filter(function (m) { return parsed.columns[m.key] !== undefined; })
       .map(function (m) { return { key: m.key, label: m.label, group: m.group }; }),
     positionOptions: POSITION_OPTIONS,
     // Only fields whose column exists in the sheet can be edited.
     editableFields: EDITABLE_FIELDS.filter(function (f) { return parsed.columns[f.key] !== undefined; }),
-    coaches: parsed.coaches,
+    coaches: coaches,
     teamLeaders: parsed.teamLeaders,
-    people: parsed.people,
-    warnings: parsed.warnings,
+    people: people,
+    warnings: isAdmin ? parsed.warnings : [],
   };
 }
 
@@ -180,17 +197,19 @@ function getDashboardData() {
  * Only cells whose value actually changed are written. Returns the refreshed
  * dashboard data plus a list of what changed.
  */
-function updatePerson(payload) {
+function updatePerson(token, payload) {
+  const ss = getSpreadsheet_();
+  const session = requireSession_(token, ss);
   if (!payload || !payload.id || !payload.name) throw new Error('Data edit tidak valid.');
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Sedang ada yang menyimpan. Coba lagi sebentar.');
   try {
-    const ss = getSpreadsheet_();
     const sheet = getDatabaseSheet_(ss);
     const lastRow = sheet.getLastRow();
     const lastCol = sheet.getLastColumn();
-    const map = mapColumns_(sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues());
+    const all = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+    const map = mapColumns_(all);
     const col = map.col;
 
     const row = Math.floor(Number(payload.id));
@@ -205,6 +224,12 @@ function updatePerson(payload) {
     // Guard against rows that moved since the dashboard was loaded.
     if (norm_(display[col.name]) !== norm_(payload.name)) {
       throw new Error('Data di baris ' + row + ' sudah berubah (nama tidak cocok). Refresh dulu lalu coba lagi.');
+    }
+
+    // A coach may only edit people in their own group (checked against the sheet, not the browser).
+    const target = parseDatabase_(all).people.filter(function (p) { return p.id === row; })[0];
+    if (!target || !canAccessCoach_(session, target.coach) || (target.isCoach && session.role !== 'ADMIN')) {
+      throw new Error('Kamu tidak punya akses untuk mengubah data ini.');
     }
 
     const changes = [];
@@ -258,18 +283,18 @@ function updatePerson(payload) {
     });
     SpreadsheetApp.flush();
 
-    if (changes.length) logEdit_(ss, row, display[col.name], changes);
+    if (changes.length) logEdit_(ss, row, display[col.name], changes, session);
 
     return {
       changes: changes.map(function (c) { return { label: c.label, from: c.from, to: c.to }; }),
-      data: getDashboardData(),
+      data: buildDashboard_(ss, session),
     };
   } finally {
     lock.releaseLock();
   }
 }
 
-function logEdit_(ss, row, name, changes) {
+function logEdit_(ss, row, name, changes, session) {
   if (!CONFIG.LOG_SHEET_NAME) return;
   try {
     let log = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
@@ -279,10 +304,9 @@ function logEdit_(ss, row, name, changes) {
       log.setFrozenRows(1);
       log.getRange('A1:E1').setFontWeight('bold');
     }
-    let who = '';
-    try { who = Session.getActiveUser().getEmail(); } catch (e) { /* not available */ }
+    const who = session.username + (session.role === 'ADMIN' ? ' (admin)' : ' (coach ' + session.coach + ')');
     log.appendRow([
-      new Date(), who || '(tidak diketahui)', row, name,
+      new Date(), who, row, name,
       changes.map(function (c) { return c.label + ': ' + (c.from || '—') + ' → ' + (c.to || '—'); }).join('\n'),
     ]);
   } catch (e) {

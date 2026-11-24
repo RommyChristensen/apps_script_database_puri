@@ -10,7 +10,37 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <?!= include('Stylesheet'); ?>
   </head>
-  <body>
+  <body class="signed-out">
+    <!-- Login -->
+    <div class="auth-screen checking" id="authScreen">
+      <div class="auth-card" id="authCard">
+        <div class="brand-mark auth-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2l2.6 6.2L21 9l-4.9 4.3L17.5 20 12 16.8 6.5 20l1.4-6.7L3 9l6.4-.8z"/></svg>
+        </div>
+        <h1 class="auth-title"><?= appTitle ?></h1>
+        <p class="auth-sub">Masuk untuk melihat dashboard coach kamu.</p>
+        <div class="auth-checking"><span class="spin dark"></span>Memeriksa sesi…</div>
+        <form id="loginForm" class="auth-form" autocomplete="on" novalidate>
+          <div class="field">
+            <label for="loginUser">Username</label>
+            <input id="loginUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="loginPass">Password</label>
+            <div class="input-wrap">
+              <input id="loginPass" name="password" type="password" autocomplete="current-password" class="has-now">
+              <button type="button" class="now-btn" id="togglePass" title="Tampilkan password" aria-label="Tampilkan password">
+                <svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="auth-error" id="loginError" role="alert"></div>
+          <button type="submit" class="btn primary auth-btn" id="loginBtn"><span class="spin"></span><span id="loginLabel">Masuk</span></button>
+        </form>
+        <p class="auth-foot">Lupa password? Hubungi team leader.</p>
+      </div>
+    </div>
+
     <div class="bg-blobs" aria-hidden="true"><span></span><span></span><span></span></div>
 
     <header class="topbar">
@@ -38,6 +68,13 @@
         <button class="icon-btn" id="refreshBtn" title="Refresh data" aria-label="Refresh data">
           <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
         </button>
+        <div class="user-chip" id="userChip" title="">
+          <span class="avatar xs" id="userAvatar"></span>
+          <span class="user-name" id="userName"></span>
+          <button class="logout-btn" id="logoutBtn" title="Keluar" aria-label="Keluar">
+            <svg class="i" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
+          </button>
+        </div>
       </div>
     </header>
 

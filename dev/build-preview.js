@@ -78,17 +78,33 @@ function main() {
   const csvArg = process.argv[2];
   const values = csvArg ? parseCsv(fs.readFileSync(csvArg, 'utf8')) : demoValues();
 
+  // Demo logins: admin/admin123 sees everyone; <coach>/<coach>123 sees one coach.
+  const coachNames = new Set();
+  const coachCol = values[3] ? values[3].indexOf('COACH') : -1;
+  values.forEach((r, i) => {
+    const banner = /^COACH\s+(.+)$/i.exec(r[0] || '');
+    if (banner) coachNames.add(banner[1].trim());
+    if (i > 4 && coachCol >= 0 && r[coachCol] && r[coachCol] !== '-') coachNames.add(r[coachCol].trim());
+  });
+  const accounts = [['USERNAME', 'PASSWORD', 'COACH', 'ROLE'], ['admin', 'admin123', '', 'ADMIN']]
+    .concat([...coachNames].map((c) => [c.toLowerCase(), c.toLowerCase() + '123', c, 'COACH']));
+
   // The page runs the REAL Code.gs in the browser against an in-memory mock of
   // SpreadsheetApp, and google.script.run is stubbed to call it with a delay.
   const server = `
   <script>${read('dev/mock-apps-script.js')}</script>
   <script>
   (function () {
-    var mocks = createMockServices(${JSON.stringify(values)}, { sheetName: ${JSON.stringify(csvArg ? 'CSV preview' : 'Database (demo)')} });
-    var SpreadsheetApp = mocks.SpreadsheetApp, LockService = mocks.LockService, Session = mocks.Session, HtmlService = mocks.HtmlService;
+    var mocks = createMockServices(${JSON.stringify(values)}, {
+      sheetName: ${JSON.stringify(csvArg ? 'CSV preview' : 'Database (demo)')},
+      sheets: { Authentication: ${JSON.stringify(accounts)} },
+    });
+    var SpreadsheetApp = mocks.SpreadsheetApp, LockService = mocks.LockService, Session = mocks.Session,
+      HtmlService = mocks.HtmlService, CacheService = mocks.CacheService, Utilities = mocks.Utilities;
     ${read('Code.gs')}
+    ${read('Auth.gs')}
     window.__mock = mocks;
-    var api = { getDashboardData: getDashboardData, updatePerson: updatePerson };
+    var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },
@@ -115,6 +131,7 @@ function main() {
     .replace(/<\?= appTitle \?>/g, 'AOG Youth Puri');
   fs.writeFileSync(path.join(__dirname, 'preview.html'), html);
   console.log('Wrote dev/preview.html (' + (csvArg ? 'CSV' : 'demo') + ' data, ' + values.length + ' rows)');
+  console.log('Demo logins: ' + accounts.slice(1).map((a) => a[0] + '/' + a[1]).join(', '));
 }
 
 module.exports = { demoValues, parseCsv };
