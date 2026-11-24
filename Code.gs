@@ -32,6 +32,8 @@ const EDITABLE_FIELDS = [
   { key: 'dateSponsor', label: 'Tgl jadi Sponsor', section: 'jenjang', type: 'month', fillNow: true },
   { key: 'targetCgl', label: 'Target CGL', section: 'jenjang', type: 'month' },
   { key: 'targetCoach', label: 'Target jadi Coach', section: 'jenjang', type: 'month' },
+  { key: 'notes', label: 'Catatan / Keterangan', section: 'jenjang', type: 'textarea', maxLength: 500,
+    placeholder: 'Catatan pembinaan, pergumulan, rencana follow up…' },
 
   { key: 'gender', label: 'Gender', section: 'pribadi', type: 'choice', options: ['Male', 'Female'] },
   { key: 'phone', label: 'No HP', section: 'pribadi', type: 'tel' },
@@ -43,7 +45,8 @@ const EDITABLE_FIELDS = [
   { key: 'occupation', label: 'Kerja / Kuliah', section: 'pribadi', type: 'suggest' },
   { key: 'school', label: 'Kampus / Sekolah', section: 'pribadi', type: 'suggest' },
   { key: 'ministry', label: 'Pelayanan', section: 'pribadi', type: 'suggest' },
-  { key: 'address', label: 'Alamat', section: 'pribadi', type: 'textarea', maxLength: 300 },
+  { key: 'address', label: 'Alamat', section: 'pribadi', type: 'textarea', maxLength: 300,
+    placeholder: 'Jalan, RT/RW, kelurahan, kecamatan' },
 ];
 
 const EMAIL_RE_ = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -151,7 +154,8 @@ function getDashboardData() {
       return { key: m.key, label: m.label, group: m.group };
     }),
     positionOptions: POSITION_OPTIONS,
-    editableFields: EDITABLE_FIELDS,
+    // Only fields whose column exists in the sheet can be edited.
+    editableFields: EDITABLE_FIELDS.filter(function (f) { return parsed.columns[f.key] !== undefined; }),
     coaches: parsed.coaches,
     people: parsed.people,
     warnings: parsed.warnings,
@@ -183,7 +187,7 @@ function updatePerson(payload) {
     const sheet = getDatabaseSheet_(ss);
     const lastRow = sheet.getLastRow();
     const lastCol = sheet.getLastColumn();
-    const map = mapColumns_(sheet.getRange(1, 1, Math.min(25, lastRow), lastCol).getDisplayValues());
+    const map = mapColumns_(sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues());
     const col = map.col;
 
     const row = Math.floor(Number(payload.id));
@@ -232,11 +236,9 @@ function updatePerson(payload) {
       targetCoachHoldsNotes_(col.notes === undefined ? '' : clean_(display[col.notes]), clean_(display[col.targetCoach]));
     EDITABLE_FIELDS.forEach(function (f) {
       if (!Object.prototype.hasOwnProperty.call(payload, f.key) || col[f.key] === undefined) return;
-      if (f.key === 'targetCoach' && notesInTargetCoach) {
-        if (String(payload.targetCoach || '').trim()) {
-          throw new Error('Kolom TARGET JD COACH di baris ini masih berisi catatan. Rapikan header di sheet dulu.');
-        }
-        return; // never wipe the misplaced notes
+      if ((f.key === 'targetCoach' || f.key === 'notes') && notesInTargetCoach) {
+        if (f.key === 'targetCoach' && !String(payload.targetCoach || '').trim()) return; // never wipe the misplaced notes
+        throw new Error('Kolom TARGET JD COACH di baris ini masih berisi catatan. Rapikan header di sheet dulu.');
       }
       const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, f.maxLength || 100);
       const had = clean_(display[col[f.key]]);
@@ -441,8 +443,8 @@ function parseDatabase_(values) {
   }
 
   if (col.coach === undefined && coachOrder.length <= 1) {
-    warnings.push('No "COACH" column found — everyone is grouped under "' + (coachOrder[0] || 'Unassigned') +
-      '". Add a COACH column or "COACH <name>" banner rows when merging.');
+    warnings.push('Kolom "COACH" tidak ditemukan — semua orang dikelompokkan ke "' + (coachOrder[0] || 'Unassigned') +
+      '". Tambahkan kolom COACH atau baris "COACH <nama>" saat menggabungkan.');
   }
 
   return {
@@ -451,6 +453,7 @@ function parseDatabase_(values) {
       return { key: c, name: c, fullName: coachFullName[c] || '' };
     }),
     warnings: warnings,
+    columns: col,
   };
 }
 
@@ -490,8 +493,26 @@ function mapColumns_(values) {
   });
   if (col.name === undefined) throw new Error('Column "NAMA" not found.');
   MILESTONES.forEach(function (m) {
-    if (col[m.key] === undefined) warnings.push('Column "' + m.header + '" not found.');
+    if (col[m.key] === undefined) warnings.push('Kolom "' + m.header + '" tidak ditemukan.');
   });
+
+  // No KETERANGAN column, but the TARGET JD COACH column is full of notes
+  // ("Keterikatan dosa", "Time Management", …): read it as KETERANGAN.
+  if (col.notes === undefined && col.targetCoach !== undefined) {
+    let filled = 0, noteLike = 0;
+    for (let i = headerRow + (hasSub ? 2 : 1); i < values.length; i++) {
+      const v = clean_(values[i][col.targetCoach]);
+      if (!v) continue;
+      filled++;
+      if (looksLikeNote_(v)) noteLike++;
+    }
+    if (filled && noteLike / filled >= 0.6) {
+      col.notes = col.targetCoach;
+      delete col.targetCoach;
+      warnings.push('Kolom "TARGET JD COACH" isinya catatan, jadi dibaca sebagai KETERANGAN. ' +
+        'Ganti judul kolomnya menjadi KETERANGAN di sheet supaya jelas.');
+    }
+  }
 
   return { headerRow: headerRow, hasSub: hasSub, col: col, extraPhoneCols: extraPhoneCols, warnings: warnings };
 }

@@ -670,13 +670,13 @@
 
   var PLACEHOLDER = {
     month: 'mis. Juni 2026', tel: '08xx-xxxx-xxxx', email: 'nama@email.com', digits: 'mis. 24000318',
-    textarea: 'Jalan, RT/RW, kelurahan, kecamatan', suggest: '',
+    textarea: '', suggest: '',
   };
 
   /** One form control for an editable field, chosen by its type. */
   function renderField(f, p, d) {
     var val = d[f.key] == null ? '' : d[f.key];
-    var locked = f.key === 'targetCoach' && p.targetCoachHoldsNotes;
+    var locked = (f.key === 'targetCoach' || f.key === 'notes') && p.targetCoachHoldsNotes;
     var id = 'f-' + f.key;
     var max = f.maxLength || 100;
     var control;
@@ -685,7 +685,7 @@
         return '<button type="button" class="chip' + (val === o ? ' active' : '') + '" data-set-choice="' + f.key + '" data-value="' + esc(o) + '">' + esc(o) + '</button>';
       }).join('') + '</div>';
     } else if (f.type === 'textarea') {
-      control = '<textarea id="' + id + '" rows="2" maxlength="' + max + '" data-field="' + f.key + '" placeholder="' + esc(PLACEHOLDER.textarea) + '">' + esc(val) + '</textarea>';
+      control = '<textarea id="' + id + '" rows="' + (f.key === 'notes' ? 3 : 2) + '" maxlength="' + max + '" data-field="' + f.key + '" placeholder="' + esc(f.placeholder || PLACEHOLDER.textarea) + '"' + (locked ? ' disabled' : '') + '>' + esc(val) + '</textarea>';
     } else if (f.type === 'date' && (!val || parseLooseDate(val))) {
       var dt = val ? parseLooseDate(val) : null;
       control = '<input id="' + id + '" type="date" data-field="' + f.key + '" data-kind="date" value="' + (dt ? toIso(dt) : '') + '" max="' + toIso(new Date()) + '">' +
@@ -696,7 +696,7 @@
       if (f.type === 'suggest') extra += ' list="dl-' + f.key + '"';
       var hasNow = f.fillNow && !locked;
       control = '<div class="input-wrap"><input id="' + id + '" type="' + type + '" maxlength="' + max + '" data-field="' + f.key + '"' +
-        ' value="' + esc(val) + '" placeholder="' + esc(PLACEHOLDER[f.type] || '') + '" autocomplete="off"' + extra +
+        ' value="' + esc(val) + '" placeholder="' + esc(f.placeholder || PLACEHOLDER[f.type] || '') + '" autocomplete="off"' + extra +
         (hasNow ? ' class="has-now"' : '') + (locked ? ' disabled' : '') + '>' +
         (hasNow ? '<button type="button" class="now-btn" data-fill-now="' + f.key + '" title="Isi bulan ini">' + ICON.cal + '</button>' : '') +
         '</div>' + (f.type === 'suggest' ? datalist(f.key) : '');

@@ -57,8 +57,10 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 - No HP is written to the **first** `NO HP` column. The second `NO HP` column is left untouched.
 - Every save is recorded in the **`Edit Log`** tab (created automatically as the last tab): time, who
   (email), row, name, and `old → new` for each change. To turn it off, set `CONFIG.LOG_SHEET_NAME = ''`.
-- If a person's `TARGET JD COACH` column still holds notes (the shifted header), that field is locked
-  so the notes can't be wiped.
+- **Catatan / Keterangan** (coaching notes) can be edited too. Only columns that exist in the sheet
+  are shown in the form. For example, if there's no EMAIL column, the Email field doesn't appear.
+- If a person's `TARGET JD COACH` cell still holds notes (the old shifted header), the Target Coach
+  and Catatan fields are locked for that person so the notes can't be wiped.
 
 After you change the code: **Deploy → Manage deployments → ✏️ → Version: New version**
 so the URL stays the same.
@@ -92,13 +94,17 @@ The first row of each block (no CG and no POSISI, e.g. "Angie Lie") is treated a
 their full name is shown on the card, and they aren't counted as a member.
 Rows without a name (like the summary block at the bottom) are skipped.
 
-### Data notes found in the current tab
+### Notes on the current tab ("Full Database AOG Puri")
+- It has a `COACH` column (column D), so each person is grouped by that column. The `COACH ANGIE`
+  banner in row 1 is no longer needed (it's harmless if left there).
+- The `KETERANGAN` column has been deleted, and the notes ("Keterikatan dosa", "Time Management"…)
+  now sit under the `TARGET JD COACH` header. The dashboard detects this: if there's no `KETERANGAN`
+  column and most of the `TARGET JD COACH` cells look like notes, the whole column is read as
+  KETERANGAN, and a yellow warning appears. **Fix:** rename that header to `KETERANGAN`. The warning
+  disappears, and if you want a real "Target jadi Coach" column, add a new column with that header.
 - Lenita/Meysia/Carla's tabs have **a different column order** (NAMA is in column G, not C) and Carla
-  has no EMAIL column. Because matching is by header that's fine, as long as the header names match
-  when everything is pasted under one header.
-- In the Angie tab the headers at the end are shifted: notes ("Mau MSJ 2…") sit under
-  `TARGET JD COACH`, and the `KETERANGAN` column holds ages. The dashboard
-  recovers these notes automatically, but fixing the header in the sheet is better.
+  has no EMAIL column. Because matching is by header that's fine, as long as you paste each column
+  under the header with the same name in this tab.
 
 ## Local preview
 ```bash
