@@ -11,6 +11,9 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   (tap a chip, or use "Centang semua" for a whole group) and change the *Jenjang*: Posisi
   (VIP → Simpatisan → Member → Sponsor → CGL) plus target and actual dates for Member, Sponsor, CGL and Coach.
   The 📅 button fills in the current month. Changes are saved straight to the sheet.
+  The **Data Diri** section edits Gender, No HP, Email, NIJ, birth city, birth date (date picker),
+  Domisili, Kerja/Kuliah, Kampus/Sekolah, Pelayanan and Alamat. Text fields suggest values already
+  in the database (e.g. campus names) so spelling stays consistent.
 
 | File | Purpose |
 | --- | --- |
@@ -48,6 +51,10 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
   real checkboxes stay as checkboxes. Date and target text is stored as plain text, so "Juni 2026" isn't turned
   into a date.
 - Cells containing **formulas** are refused, not overwritten.
+- Validation runs in the browser and again on the server: email format, No HP (digits, 6–20 characters),
+  NIJ digits only, and Gender must be Male or Female. Mistakes are shown in red and Save stays disabled.
+- Birth dates are written in the TTL column's format, e.g. `5 March 2004`. Age is recalculated automatically.
+- No HP is written to the **first** `NO HP` column. The second `NO HP` column is left untouched.
 - Every save is recorded in the **`Edit Log`** tab (created automatically as the last tab): time, who
   (email), row, name, and `old → new` for each change. To turn it off, set `CONFIG.LOG_SHEET_NAME = ''`.
 - If a person's `TARGET JD COACH` column still holds notes (the shifted header), that field is locked

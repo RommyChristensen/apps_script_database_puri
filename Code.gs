@@ -20,15 +20,43 @@ const CONFIG = {
 /** Values allowed in the POSISI column when editing. */
 const POSITION_OPTIONS = ['VIP', 'SIMPATISAN', 'MEMBER', 'SPONSOR', 'CGL'];
 
-/** Free-text "Jenjang" fields that can be edited from the dashboard. */
-const EDITABLE_TEXT_FIELDS = [
-  { key: 'targetMember', label: 'Target jadi Member' },
-  { key: 'dateMember', label: 'Tgl jadi Member' },
-  { key: 'targetSponsor', label: 'Target jadi Sponsor' },
-  { key: 'dateSponsor', label: 'Tgl jadi Sponsor' },
-  { key: 'targetCgl', label: 'Target CGL' },
-  { key: 'targetCoach', label: 'Target jadi Coach' },
+/**
+ * Text fields that can be edited from the dashboard (besides milestones and POSISI).
+ *   section: 'jenjang' | 'pribadi'      → where the field appears in the edit form
+ *   type:    text | month | date | choice | email | tel | digits | suggest | textarea
+ */
+const EDITABLE_FIELDS = [
+  { key: 'targetMember', label: 'Target jadi Member', section: 'jenjang', type: 'month' },
+  { key: 'dateMember', label: 'Tgl jadi Member', section: 'jenjang', type: 'month', fillNow: true },
+  { key: 'targetSponsor', label: 'Target jadi Sponsor', section: 'jenjang', type: 'month' },
+  { key: 'dateSponsor', label: 'Tgl jadi Sponsor', section: 'jenjang', type: 'month', fillNow: true },
+  { key: 'targetCgl', label: 'Target CGL', section: 'jenjang', type: 'month' },
+  { key: 'targetCoach', label: 'Target jadi Coach', section: 'jenjang', type: 'month' },
+
+  { key: 'gender', label: 'Gender', section: 'pribadi', type: 'choice', options: ['Male', 'Female'] },
+  { key: 'phone', label: 'No HP', section: 'pribadi', type: 'tel' },
+  { key: 'email', label: 'Email', section: 'pribadi', type: 'email' },
+  { key: 'nij', label: 'NIJ', section: 'pribadi', type: 'digits' },
+  { key: 'birthCity', label: 'Kota kelahiran', section: 'pribadi', type: 'suggest' },
+  { key: 'birthDate', label: 'Tanggal lahir', section: 'pribadi', type: 'date' },
+  { key: 'domicile', label: 'Domisili (kecamatan)', section: 'pribadi', type: 'suggest' },
+  { key: 'occupation', label: 'Kerja / Kuliah', section: 'pribadi', type: 'suggest' },
+  { key: 'school', label: 'Kampus / Sekolah', section: 'pribadi', type: 'suggest' },
+  { key: 'ministry', label: 'Pelayanan', section: 'pribadi', type: 'suggest' },
+  { key: 'address', label: 'Alamat', section: 'pribadi', type: 'textarea', maxLength: 300 },
 ];
+
+const EMAIL_RE_ = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE_ = /^\+?[\d\s\-().]{6,20}$/;
+
+/** Throws a readable error when a value is not acceptable for its field. */
+function validateField_(f, value) {
+  if (!value) return;
+  if (f.type === 'email' && !EMAIL_RE_.test(value)) throw new Error('Email "' + value + '" tidak valid.');
+  if (f.type === 'tel' && !PHONE_RE_.test(value)) throw new Error('No HP "' + value + '" tidak valid.');
+  if (f.type === 'digits' && !/^[\d\s\-]+$/.test(value)) throw new Error(f.label + ' hanya boleh angka.');
+  if (f.type === 'choice' && f.options.indexOf(value) < 0) throw new Error(f.label + ' harus salah satu dari: ' + f.options.join(', ') + '.');
+}
 
 /** Growth milestones, in the order they appear under 5M / MSJ / CGT. */
 const MILESTONES = [
@@ -123,7 +151,7 @@ function getDashboardData() {
       return { key: m.key, label: m.label, group: m.group };
     }),
     positionOptions: POSITION_OPTIONS,
-    editableFields: EDITABLE_TEXT_FIELDS,
+    editableFields: EDITABLE_FIELDS,
     coaches: parsed.coaches,
     people: parsed.people,
     warnings: parsed.warnings,
@@ -139,7 +167,7 @@ function getDashboardData() {
  *   id: <sheet row number>, name: <name shown in the dashboard>,
  *   milestones: { percayaYesus: true, msj1: false, ... },   // optional
  *   position: 'MEMBER',                                       // optional
- *   targetMember, dateMember, targetSponsor, dateSponsor, targetCgl, targetCoach  // optional
+ *   <any key from EDITABLE_FIELDS>: 'text'                    // optional
  * }
  *
  * Only cells whose value actually changed are written. Returns the refreshed
@@ -199,10 +227,10 @@ function updatePerson(payload) {
       if (want && want !== had) queue(col.position, want, 'Posisi', had, want, true);
     }
 
-    // Jenjang text fields
+    // Jenjang + personal data fields (all validated before anything is written)
     const notesInTargetCoach = col.targetCoach !== undefined &&
       targetCoachHoldsNotes_(col.notes === undefined ? '' : clean_(display[col.notes]), clean_(display[col.targetCoach]));
-    EDITABLE_TEXT_FIELDS.forEach(function (f) {
+    EDITABLE_FIELDS.forEach(function (f) {
       if (!Object.prototype.hasOwnProperty.call(payload, f.key) || col[f.key] === undefined) return;
       if (f.key === 'targetCoach' && notesInTargetCoach) {
         if (String(payload.targetCoach || '').trim()) {
@@ -210,15 +238,16 @@ function updatePerson(payload) {
         }
         return; // never wipe the misplaced notes
       }
-      const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, 100);
+      const want = String(payload[f.key] == null ? '' : payload[f.key]).replace(/\s+/g, ' ').trim().slice(0, f.maxLength || 100);
       const had = clean_(display[col[f.key]]);
       if (want === had) return;
+      validateField_(f, want);
       queue(col[f.key], want, f.label, had, want, true);
     });
 
     changes.forEach(function (c) {
       const cell = sheet.getRange(row, c.col + 1);
-      // Store as plain text so "Juni 2026" isn't turned into a date by Sheets.
+      // Store as plain text so "Juni 2026" isn't turned into a date and phone numbers keep their leading 0.
       if (c.asText && c.value !== '') cell.setNumberFormat('@');
       cell.setValue(c.value);
     });

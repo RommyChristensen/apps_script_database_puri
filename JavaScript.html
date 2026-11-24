@@ -37,7 +37,6 @@
     cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   };
   var POSITION_LABEL = { VIP: 'VIP', SIMPATISAN: 'Simpatisan', MEMBER: 'Member', SPONSOR: 'Sponsor', CGL: 'CGL' };
-  var DATE_FIELDS = { dateMember: 1, dateSponsor: 1 };
 
   var state = {
     data: null, coaches: [], byId: {}, people: [],
@@ -505,19 +504,46 @@
     return out;
   }
   function countChanges() { return diffEdit().length; }
+  /** { fieldKey: message } for changed fields that the server would reject. */
+  function editErrors() {
+    var out = {};
+    if (!state.edit) return out;
+    var changed = {};
+    diffEdit().forEach(function (c) { changed[c.key] = 1; });
+    state.data.editableFields.forEach(function (f) {
+      if (!changed[f.key]) return;
+      var e = fieldError(f, state.edit.draft[f.key]);
+      if (e) out[f.key] = e;
+    });
+    return out;
+  }
+  function setChoice(key, value) {
+    var d = state.edit.draft;
+    d[key] = d[key] === value ? '' : value; // tap the active option again to clear it
+    $$('#modal [data-set-choice="' + key + '"]').forEach(function (b) { b.classList.toggle('active', b.dataset.value === d[key]); });
+    updateEditUi();
+  }
 
   function updateEditUi() {
     var n = countChanges();
     var btn = $('#saveEditBtn');
     if (!btn) return;
-    btn.disabled = !n || state.edit.saving;
-    $('#saveEditLabel').textContent = state.edit.saving ? 'Menyimpan…' : (n ? 'Simpan ' + n + ' perubahan' : 'Belum ada perubahan');
+    var errors = editErrors();
+    var nErr = Object.keys(errors).length;
+    btn.disabled = !n || nErr > 0 || state.edit.saving;
+    $('#saveEditLabel').textContent = state.edit.saving ? 'Menyimpan…'
+      : nErr ? 'Periksa ' + nErr + ' isian'
+      : (n ? 'Simpan ' + n + ' perubahan' : 'Belum ada perubahan');
     btn.classList.toggle('loading', state.edit.saving);
     $('#cancelEditBtn').disabled = state.edit.saving;
     var changed = {};
     diffEdit().forEach(function (c) { changed[c.key] = 1; });
-    $$('#modal [data-field]').forEach(function (el) {
-      el.closest('.field').classList.toggle('changed', !!changed[el.dataset.field]);
+    $$('#modal [data-field-wrap]').forEach(function (el) {
+      var k = el.dataset.fieldWrap;
+      el.classList.toggle('changed', !!changed[k]);
+      el.classList.toggle('invalid', !!errors[k]);
+      var err = $('.err', el);
+      if (err) err.textContent = errors[k] || '';
     });
     $$('#modal [data-toggle-ms]').forEach(function (el) {
       el.classList.toggle('changed', !!changed[el.dataset.toggleMs]);
@@ -623,29 +649,110 @@
       return '<button type="button" class="chip' + (d.position === o ? ' active' : '') + '" data-set-pos="' + esc(o) + '">' + esc(POSITION_LABEL[o] || o) + '</button>';
     }).join('');
 
-    var fields = state.data.editableFields.map(function (f) {
-      var locked = f.key === 'targetCoach' && p.targetCoachHoldsNotes;
-      return '<div class="field' + (locked ? ' locked' : '') + '"><label for="f-' + f.key + '">' + esc(f.label) + '</label>' +
-        '<div class="input-wrap"><input id="f-' + f.key + '" type="text" maxlength="100" data-field="' + f.key + '" value="' + esc(d[f.key]) + '"' +
-        (DATE_FIELDS[f.key] && !locked ? ' class="has-now"' : '') +
-        ' placeholder="mis. Juni 2026" autocomplete="off"' + (locked ? ' disabled' : '') + '>' +
-        (DATE_FIELDS[f.key] && !locked ? '<button type="button" class="now-btn" data-fill-now="' + f.key + '" title="Isi bulan ini">' + ICON.cal + '</button>' : '') +
-        '</div>' +
-        (locked ? '<div class="hint">Kolom ini masih berisi catatan (header bergeser). Rapikan di sheet dulu.</div>' : '') +
-        '</div>';
-    }).join('');
+    var bySection = function (sec) {
+      return state.data.editableFields.filter(function (f) { return f.section === sec; })
+        .map(function (f) { return renderField(f, p, d); }).join('');
+    };
 
     return '<div class="m-body">' +
       '<div class="m-section"><h4>Perjalanan Bertumbuh <span class="h4-hint">tap untuk centang</span></h4><div class="journey">' + journey + '</div></div>' +
       '<div class="m-section"><h4>Jenjang</h4>' +
       '<div class="field-label">Posisi</div><div class="chips seg">' + seg + '</div>' +
-      '<div class="form-grid">' + fields + '</div></div>' +
+      '<div class="form-grid">' + bySection('jenjang') + '</div></div>' +
+      '<div class="m-section"><h4>Data Diri</h4><div class="form-grid">' + bySection('pribadi') + '</div></div>' +
       '</div>' +
       '<div class="m-footer">' +
       '<button type="button" class="btn" id="cancelEditBtn" data-cancel-edit>Batal</button>' +
       '<button type="button" class="btn primary" id="saveEditBtn" data-save-edit disabled>' +
       '<span class="spin"></span>' + ICON.save + '<span id="saveEditLabel">Belum ada perubahan</span></button>' +
       '</div>';
+  }
+
+  var PLACEHOLDER = {
+    month: 'mis. Juni 2026', tel: '08xx-xxxx-xxxx', email: 'nama@email.com', digits: 'mis. 24000318',
+    textarea: 'Jalan, RT/RW, kelurahan, kecamatan', suggest: '',
+  };
+
+  /** One form control for an editable field, chosen by its type. */
+  function renderField(f, p, d) {
+    var val = d[f.key] == null ? '' : d[f.key];
+    var locked = f.key === 'targetCoach' && p.targetCoachHoldsNotes;
+    var id = 'f-' + f.key;
+    var max = f.maxLength || 100;
+    var control;
+    if (f.type === 'choice') {
+      control = '<div class="chips seg tight" role="radiogroup">' + f.options.map(function (o) {
+        return '<button type="button" class="chip' + (val === o ? ' active' : '') + '" data-set-choice="' + f.key + '" data-value="' + esc(o) + '">' + esc(o) + '</button>';
+      }).join('') + '</div>';
+    } else if (f.type === 'textarea') {
+      control = '<textarea id="' + id + '" rows="2" maxlength="' + max + '" data-field="' + f.key + '" placeholder="' + esc(PLACEHOLDER.textarea) + '">' + esc(val) + '</textarea>';
+    } else if (f.type === 'date' && (!val || parseLooseDate(val))) {
+      var dt = val ? parseLooseDate(val) : null;
+      control = '<input id="' + id + '" type="date" data-field="' + f.key + '" data-kind="date" value="' + (dt ? toIso(dt) : '') + '" max="' + toIso(new Date()) + '">' +
+        (val ? '<div class="hint soft">Di sheet: ' + esc(val) + '</div>' : '');
+    } else {
+      var type = f.type === 'email' ? 'email' : f.type === 'tel' ? 'tel' : 'text';
+      var extra = f.type === 'digits' ? ' inputmode="numeric"' : '';
+      if (f.type === 'suggest') extra += ' list="dl-' + f.key + '"';
+      var hasNow = f.fillNow && !locked;
+      control = '<div class="input-wrap"><input id="' + id + '" type="' + type + '" maxlength="' + max + '" data-field="' + f.key + '"' +
+        ' value="' + esc(val) + '" placeholder="' + esc(PLACEHOLDER[f.type] || '') + '" autocomplete="off"' + extra +
+        (hasNow ? ' class="has-now"' : '') + (locked ? ' disabled' : '') + '>' +
+        (hasNow ? '<button type="button" class="now-btn" data-fill-now="' + f.key + '" title="Isi bulan ini">' + ICON.cal + '</button>' : '') +
+        '</div>' + (f.type === 'suggest' ? datalist(f.key) : '');
+    }
+    return '<div class="field' + (locked ? ' locked' : '') + (f.type === 'textarea' ? ' wide' : '') + '" data-field-wrap="' + f.key + '">' +
+      '<label for="' + id + '">' + esc(f.label) + '</label>' + control +
+      (locked ? '<div class="hint">Kolom ini masih berisi catatan (header bergeser). Rapikan di sheet dulu.</div>' : '') +
+      '<div class="err"></div></div>';
+  }
+
+  /** Autocomplete list built from values already used in the database. */
+  function datalist(key) {
+    var seen = {}, out = [];
+    state.people.forEach(function (p) {
+      var v = (p[key] || '').trim();
+      if (v && !seen[v.toLowerCase()]) { seen[v.toLowerCase()] = 1; out.push(v); }
+    });
+    out.sort(function (a, b) { return a.localeCompare(b, 'id'); });
+    return '<datalist id="dl-' + key + '">' + out.slice(0, 300).map(function (v) {
+      return '<option value="' + esc(v) + '">';
+    }).join('') + '</datalist>';
+  }
+
+  /** Mirrors validateField_ in Code.gs so problems show before saving. */
+  function fieldError(f, v) {
+    v = (v || '').trim();
+    if (!v) return '';
+    if (f.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Format email tidak valid';
+    if (f.type === 'tel' && !/^\+?[\d\s\-().]{6,20}$/.test(v)) return 'Isi nomor HP (angka, 6–20 digit)';
+    if (f.type === 'digits' && !/^[\d\s\-]+$/.test(v)) return 'Hanya angka';
+    return '';
+  }
+
+  var MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var MONTH_IDX = {
+    jan: 0, januari: 0, january: 0, feb: 1, februari: 1, february: 1, mar: 2, maret: 2, march: 2, apr: 3, april: 3,
+    mei: 4, may: 4, jun: 5, juni: 5, june: 5, jul: 6, juli: 6, july: 6, agu: 7, agt: 7, agustus: 7, aug: 7, august: 7,
+    sep: 8, sept: 8, september: 8, okt: 9, oktober: 9, oct: 9, october: 9, nov: 10, november: 10, des: 11, desember: 11, dec: 11, december: 11,
+  };
+  /** Same formats as parseDate_ in Code.gs: "19 November 2002", "19/11/2002", "2002-11-19". */
+  function parseLooseDate(s) {
+    var m = String(s).match(/(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})/);
+    if (m && MONTH_IDX[m[2].toLowerCase()] !== undefined) return new Date(+m[3], MONTH_IDX[m[2].toLowerCase()], +m[1]);
+    m = String(s).match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+    m = String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    return null;
+  }
+  function toIso(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  /** "2002-11-19" -> "19 November 2002" (the format already used in the TTL column). */
+  function isoToLong(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? (+m[3]) + ' ' + MONTHS_EN[+m[2] - 1] + ' ' + m[1] : '';
   }
 
   function renderPerson(p) {
@@ -753,6 +860,7 @@
       if ((el = t.closest('[data-toggle-ms]'))) return toggleMilestone(el);
       if ((el = t.closest('[data-toggle-group]'))) return toggleGroup(el.dataset.toggleGroup);
       if ((el = t.closest('[data-set-pos]'))) return setPosition(el.dataset.setPos);
+      if ((el = t.closest('[data-set-choice]'))) return setChoice(el.dataset.setChoice, el.dataset.value);
       if ((el = t.closest('[data-fill-now]'))) return fillNow(el.dataset.fillNow);
       if ((el = t.closest('[data-cancel-edit]'))) return cancelEdit();
       if ((el = t.closest('[data-save-edit]'))) return saveEdit();
@@ -783,11 +891,11 @@
   $('#modal').addEventListener('input', function (e) {
     var f = e.target.dataset && e.target.dataset.field;
     if (!f || !state.edit) return;
-    state.edit.draft[f] = e.target.value;
+    state.edit.draft[f] = e.target.dataset.kind === 'date' ? isoToLong(e.target.value) : e.target.value;
     updateEditUi();
   });
   $('#modal').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target.dataset && e.target.dataset.field) { e.preventDefault(); saveEdit(); }
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.dataset.field) { e.preventDefault(); saveEdit(); }
   });
 
   document.addEventListener('keydown', function (e) {

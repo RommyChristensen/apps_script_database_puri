@@ -36,7 +36,8 @@ test('parses 5 coaches from banner rows', () => {
   const d = api.getDashboardData();
   assert.deepStrictEqual(clone(d.coaches.map((c) => c.name)), ['Angie', 'Lenita', 'Carla', 'Meysia', 'David']);
   assert.ok(d.positionOptions.includes('SPONSOR'));
-  assert.strictEqual(d.editableFields.length, 6);
+  assert.strictEqual(d.editableFields.filter((f) => f.section === 'jenjang').length, 6);
+  assert.strictEqual(d.editableFields.filter((f) => f.section === 'pribadi').length, 11);
 });
 
 test('updates milestones, position and jenjang; writes only changed cells; logs the edit', () => {
@@ -110,6 +111,44 @@ test('real checkbox cells stay booleans', () => {
   const s = boot(vals);
   s.api.updatePerson({ id: tmp.id, name: tmp.name, milestones: { cgt3: true } });
   assert.strictEqual(s.grid[tmp.id - 1][SUBC('CGT 3')], true);
+});
+
+test('edits personal data fields', () => {
+  const s = boot(clone(base));
+  const p = s.api.getDashboardData().people.find((x) => !x.isCoach);
+  const addr = 'Jl. Panjang ' + 'x'.repeat(400);
+  const res = s.api.updatePerson({
+    id: p.id, name: p.name,
+    gender: p.gender === 'Male' ? 'Female' : 'Male', phone: '0812-3456-7890', email: 'baru@example.com',
+    nij: '24009999', birthCity: 'Bandung', birthDate: '5 March 2004', domicile: 'Kembangan Utara',
+    occupation: 'Kerja Freelance', school: 'UPH Karawaci', ministry: 'Worship Team', address: addr,
+  });
+  assert.strictEqual(res.changes.length, 11);
+  const row = s.grid[p.id - 1];
+  assert.strictEqual(row[C('NO HP')], '0812-3456-7890', 'first NO HP column, leading zero kept');
+  assert.strictEqual(row[C('EMAIL')], 'baru@example.com');
+  assert.strictEqual(row[C('TTL')], '5 March 2004');
+  assert.strictEqual(row[C('ALAMAT')].length, 300, 'address capped at 300 chars');
+  const fresh = res.data.people.find((x) => x.id === p.id);
+  assert.strictEqual(fresh.birthCity, 'Bandung');
+  assert.ok(fresh.age >= 21, 'age recomputed from new birth date');
+});
+
+test('rejects invalid personal data without writing anything', () => {
+  const s = boot(clone(base));
+  const p = s.api.getDashboardData().people.find((x) => !x.isCoach);
+  assert.throws(() => s.api.updatePerson({ id: p.id, name: p.name, ministry: 'Usher', email: 'bukan-email' }), /Email .* tidak valid/);
+  assert.throws(() => s.api.updatePerson({ id: p.id, name: p.name, phone: 'abc' }), /No HP .* tidak valid/);
+  assert.throws(() => s.api.updatePerson({ id: p.id, name: p.name, gender: 'Other' }), /Gender harus/);
+  assert.throws(() => s.api.updatePerson({ id: p.id, name: p.name, nij: '24A' }), /hanya boleh angka/);
+  assert.strictEqual(s.mocks.writes.length, 0);
+});
+
+test('clearing a personal field writes an empty cell', () => {
+  const s = boot(clone(base));
+  const p = s.api.getDashboardData().people.find((x) => !x.isCoach && x.school);
+  s.api.updatePerson({ id: p.id, name: p.name, school: '' });
+  assert.strictEqual(s.grid[p.id - 1][C('KAMPUS')], '');
 });
 
 const csv = process.argv[2];
