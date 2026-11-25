@@ -717,8 +717,8 @@ test('admin can log Pertemuan with a coach; the coach sees it read-only', () => 
   const seen = s.raw.getMeetings(s.token).meetings.find((m) => m.id === id);
   assert.ok(seen && seen.readOnly && seen.aboutLeader, 'Angie sees it, read-only');
   assert.strictEqual(s.raw.getMeetings(admin).meetings.find((m) => m.id === id).readOnly, false);
-  assert.throws(() => s.raw.setTaskDone(s.token, id, '1', true), /hanya bisa diubah oleh admin/);
-  assert.throws(() => s.raw.deleteMeeting(s.token, id), /hanya bisa diubah oleh admin/);
+  assert.throws(() => s.raw.setTaskDone(s.token, id, '1', true), /hanya bisa diubah oleh TL atau admin/);
+  assert.throws(() => s.raw.deleteMeeting(s.token, id), /hanya bisa diubah oleh TL atau admin/);
   assert.throws(() => s.raw.saveMeeting(s.token, { id, date: '2026-11-20', people: [angieRow.name], category: 'Evaluasi CG', purpose: 'x x x' }), /tidak ditemukan|hanya bisa diubah/);
   assert.throws(() => s.raw.saveMeeting(s.token, { date: '2026-11-20', people: [angieRow.name], category: 'Evaluasi CG', purpose: 'Coach log' }), /tidak ditemukan/);
   assert.strictEqual(s.raw.getMeetings(s.raw.login('lenita', 'lenita-pass').token).meetings.length, 0, 'other coaches do not see it');
@@ -879,6 +879,20 @@ test('visit: access follows coach / TL / admin', () => {
   assert.strictEqual(s.raw.getVisits(angie).visits[0].role, 'Coach');
   const id = s.raw.getVisits(admin).visits.find((v) => v.coach === 'David').id;
   assert.strictEqual(s.raw.deleteVisit(admin, id).visits.length, 1);
+});
+
+test('TL records Pertemuan and LDP about their coaches; a coach only reads them', () => {
+  const { s, angie, people } = vSetup();
+  const coachRow = people().find((p) => p.isCoach && p.coach === 'Angie' && !p.isLeader);
+  const davidRow = people().find((p) => p.isCoach && p.coach === 'David' && !p.isLeader);
+  const id = s.raw.saveMeeting(s.token, meeting([coachRow.name])).savedId;
+  const seen = s.raw.getMeetings(angie).meetings.find((m) => m.id === id);
+  assert.ok(seen && seen.readOnly && seen.aboutLeader);
+  assert.strictEqual(s.raw.getMeetings(s.token).meetings.find((m) => m.id === id).readOnly, false);
+  assert.throws(() => s.raw.saveMeeting(s.token, meeting([davidRow.name])), /tidak ditemukan/);
+  s.raw.saveLdp(s.token, { id: coachRow.id, name: coachRow.name, targets: { tl: '2027-06-01' } });
+  assert.throws(() => s.raw.saveLdp(angie, { id: coachRow.id, name: coachRow.name, targets: { tl: '2027-07-01' } }));
+  assert.throws(() => s.raw.saveLdp(s.token, { id: davidRow.id, name: davidRow.name, targets: { tl: '2027-06-01' } }));
 });
 
 test('multiplikasi / pindah CG to another coach also updates TL', () => {

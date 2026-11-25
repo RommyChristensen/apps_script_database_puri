@@ -87,13 +87,13 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 | USERNAME | PASSWORD | COACH | ROLE | CATATAN |
 | --- | --- | --- | --- | --- |
-| rommy | *(type one)* | | ADMIN | sees every coach |
+| admin | *(type one)* | | ADMIN | sees every coach |
+| rommy | *(type one)* | Rommy Christensen | TL | sees every coach whose rows have TL = Rommy Christensen |
 | angie | *(type one)* | Angie | COACH | sees only COACH = Angie |
-| rommytl | *(type one)* | Rommy Christensen | TL | sees every coach whose rows have TL = Rommy Christensen |
 
 - **COACH** must match the value in the database's COACH column (capitals don't matter).
 - **ROLE**: `COACH` (default), `TL` (Team Leader: put the TL's name in COACH, exactly as in the database's
-  **TL** column; sees and edits every coach under them), `ADMIN` (sees everyone and gets the spreadsheet links),
+  **TL** column; sees and edits every coach under them, and records Pertemuan / LDP about those coaches, which the coach sees read-only), `ADMIN` (sees everyone and gets the spreadsheet links),
   or `NONAKTIF` (blocked). A TL's list of coaches is refreshed every 5 minutes.
 - **Passwords**: type them in plain text. After the person's first successful login the app replaces the
   password with a salted hash (`sha256$…`), so the tab never keeps readable passwords. To **reset** a

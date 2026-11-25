@@ -46,7 +46,7 @@ function saveMeeting(token, meeting) {
   const coaches = {};
   const names = clean.people.map(function (name) {
     const hit = people.filter(function (p) {
-      return (!p.isCoach || session.role === 'ADMIN') && norm_(p.name) === norm_(name);
+      return (!p.isCoach || leadsCoaches_(session)) && norm_(p.name) === norm_(name);
     });
     const visible = hit.filter(function (p) { return canAccessCoach_(session, p.coach); });
     if (!visible.length) throw new Error('"' + name + '" tidak ditemukan di data coach kamu.');
@@ -186,7 +186,7 @@ function deleteMeetingRows_(sheet, rows) {
 
 /** Groups task rows into meetings the session may see, newest first. */
 /**
- * Pertemuan with a coach or the team leader are written by admins; the coach
+ * Pertemuan with a coach or the team leader are written by admins and TLs; the coach
  * can see the ones about them, read-only. Returns a test for a meeting row/object.
  */
 function leaderTest_(ss) {
@@ -201,8 +201,8 @@ function leaderTest_(ss) {
 
 function requireMeetingWrite_(ss, session, m) {
   if (!canAccessCoach_(session, m.coach)) throw new Error('Kamu tidak punya akses ke pertemuan ini.');
-  if (session.role !== 'ADMIN' && leaderTest_(ss)(m)) {
-    throw new Error('Pertemuan dengan coach / team leader hanya bisa diubah oleh admin.');
+  if (!leadsCoaches_(session) && leaderTest_(ss)(m)) {
+    throw new Error('Pertemuan dengan coach / team leader hanya bisa diubah oleh TL atau admin.');
   }
 }
 
@@ -228,7 +228,7 @@ function meetingsPayload_(ss, session) {
   const aboutLeader = leaderTest_(ss);
   order.forEach(function (m) {
     m.aboutLeader = aboutLeader(m);
-    m.readOnly = session.role !== 'ADMIN' && m.aboutLeader;
+    m.readOnly = !leadsCoaches_(session) && m.aboutLeader;
   });
   return { meetings: order, categories: MEETING.CATEGORIES };
 }

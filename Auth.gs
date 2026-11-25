@@ -185,6 +185,11 @@ function tlCoaches_(ss, tlName) {
   return out;
 }
 
+/** Admins and TLs record Pertemuan / LDP about coaches and edit coach rows (TL: only their own coaches). */
+function leadsCoaches_(session) {
+  return session.role === 'ADMIN' || session.role === 'TL';
+}
+
 /** 'Admin' | 'TL' | 'Coach' — how this session is labelled in logs. */
 function roleLabel_(session) {
   return session.role === 'ADMIN' ? 'Admin' : session.role === 'TL' ? 'TL' : 'Coach';

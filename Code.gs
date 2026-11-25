@@ -269,7 +269,7 @@ function applyPersonUpdate_(ss, session, payload) {
 
   // A coach may only edit people in their own group (checked against the sheet, not the browser).
   const target = parseDatabase_(all).people.filter(function (p) { return p.id === row; })[0];
-  if (!target || !canAccessCoach_(session, target.coach) || (target.isCoach && session.role !== 'ADMIN')) {
+  if (!target || !canAccessCoach_(session, target.coach) || (target.isCoach && !leadsCoaches_(session))) {
     throw new Error('Kamu tidak punya akses untuk mengubah data ini.');
   }
 

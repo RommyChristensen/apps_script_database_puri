@@ -228,9 +228,9 @@
         (x.cur ? '<span class="ldp-next">Menuju <b>' + esc(x.cur.step.label) + '</b></span>' : '') + statusChip(x) +
         (x.updated ? '<span class="ldp-chip ok">' + IC.check + 'Diupdate bulan ini</span>' : '') + '</div></div>' +
         last +
-        (!p.isCoach || isAdmin()
+        (!p.isCoach || A.seesMany()
           ? '<button class="btn ldp-update' + (x.needsUpdate ? ' primary' : '') + '" data-ldp-open="' + p.id + '">' + IC.up + 'Update</button>'
-          : '<span class="badge line ldp-update" title="Diupdate oleh admin">Hanya lihat</span>') +
+          : '<span class="badge line ldp-update" title="Diupdate oleh TL / admin">Hanya lihat</span>') +
         '</article>';
     }).join('');
   }

@@ -859,9 +859,10 @@
     var editing = !!(state.edit && state.edit.id === p.id);
     var actions = [];
     var admin = !!(state.data.user && state.data.user.isAdmin);
-    // Coach / team leader rows: only admins edit them (the server enforces the same).
-    if (!p.isCoach || admin) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
-    if (window.AOGLdp && (!p.isCoach || admin)) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
+    // Coach rows: only TLs and admins edit them (the server enforces the same).
+    var lead = seesMany();
+    if (!p.isCoach || lead) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
+    if (window.AOGLdp && (!p.isCoach || lead)) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
     if (window.AOGRestructure && !p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-rs-move="' + p.id + '">' + ICON.users + 'Pindah CG</button>');
     if (window.AOGRestructure && admin) actions.push('<button type="button" class="btn danger-btn" data-rs-delete="' + p.id + '">' + ICON.close + 'Hapus</button>');
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
