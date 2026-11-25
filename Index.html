@@ -57,11 +57,11 @@
       <nav class="main-nav" id="mainNav" aria-label="Menu">
         <button class="nav-item active" data-view="dashboard" title="Dashboard" aria-current="page">
           <svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/></svg>
-          <span>Dashboard</span>
+          <span data-short="Home">Dashboard</span>
         </button>
         <button class="nav-item" data-view="meetings" title="Pertemuan">
           <svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h3M8 17h6"/></svg>
-          <span>Pertemuan</span>
+          <span data-short="Temu">Pertemuan</span>
           <span class="nav-badge" id="navBadge" hidden></span>
         </button>
         <button class="nav-item" data-view="ldp" title="LDP">
@@ -69,14 +69,18 @@
           <span>LDP</span>
           <span class="nav-badge" id="ldpBadge" hidden></span>
         </button>
+        <button class="nav-item" data-view="visi" title="Visi">
+          <svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Visi</span>
+        </button>
         <button class="nav-item" data-view="visits" title="Visit CG">
           <svg class="i" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>
-          <span>Visit CG</span>
+          <span data-short="Visit">Visit CG</span>
           <span class="nav-badge" id="visitBadge" hidden></span>
         </button>
         <button class="nav-item" data-view="multiply" title="Multiplikasi">
           <svg class="i" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-7 8-7 0 5-3 7-8 7zM12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 5.5 7 5.5z"/></svg>
-          <span>Multiplikasi</span>
+          <span data-short="Multi">Multiplikasi</span>
         </button>
         <button class="nav-item" data-view="locations" title="Lokasi">
           <svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
@@ -132,6 +136,22 @@
         </div>
         <div class="coach-grid" id="coachGrid">
           <div class="coach-card skeleton"></div><div class="coach-card skeleton"></div><div class="coach-card skeleton"></div>
+        </div>
+      </section>
+
+      <!-- CG health -->
+      <section class="section">
+        <div class="section-head">
+          <h2>Kesehatan CG</h2>
+          <span class="muted small">Hijau: ada CGL, ≥ 2 sponsor, 4–11 member · Kuning: di antaranya · Merah: tanpa CGL / sponsor, atau member &lt; 2</span>
+        </div>
+        <div class="panel hl-panel">
+          <div class="hl-bar" id="healthBar"></div>
+          <div class="hl-tools">
+            <div class="chips" id="healthChips"></div>
+            <select id="healthCoach" class="hl-select" aria-label="Coach" hidden></select>
+          </div>
+          <div class="hl-grid" id="healthGrid"></div>
         </div>
       </section>
 
@@ -243,6 +263,22 @@
       </div>
     </main>
 
+    <!-- Visi -->
+    <main id="visiView" class="meetings-view visi-view" data-view="visi" hidden>
+      <section class="mt-head">
+        <div>
+          <div class="eyebrow-soft">Menu · Visi</div>
+          <h1 class="page-title">Visi</h1>
+          <p class="muted page-sub">Visi setiap coach dan TL, targetnya, dan milestone perjalanannya. Angka progres dihitung otomatis dari database.</p>
+        </div>
+        <button class="btn primary" id="newVisiBtn">
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Visi baru
+        </button>
+      </section>
+      <div class="chips vi-chips" id="visiChips" hidden></div>
+      <div id="visiList" class="vi-list"></div>
+    </main>
+
     <!-- Visit CG -->
     <main id="visitView" class="meetings-view visit-view" data-view="visits" hidden>
       <section class="mt-head">
@@ -344,6 +380,12 @@
       <div class="modal mt-modal" role="dialog" aria-modal="true" id="locModal"></div>
     </div>
 
+    <!-- Visi form -->
+    <div class="modal-wrap mt-wrap" id="visiModalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-visi-close></div>
+      <div class="modal mt-modal" role="dialog" aria-modal="true" id="visiModal"></div>
+    </div>
+
     <!-- Visit form -->
     <div class="modal-wrap mt-wrap" id="visitModalWrap" aria-hidden="true">
       <div class="modal-scrim" data-visit-close></div>
@@ -366,5 +408,6 @@
     <?!= include('RestructureUi'); ?>
     <?!= include('MultiplyUi'); ?>
     <?!= include('VisitsUi'); ?>
+    <?!= include('VisiUi'); ?>
   </body>
 </html>

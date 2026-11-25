@@ -159,7 +159,7 @@
       '<span class="vs-cgl">' + (v.cgl ? 'CGL ' + esc(v.cgl) : 'Tanpa CGL') + (A.seesMany() ? ' · Coach ' + esc(v.coach) : '') + '</span>';
   }
   function empty(title, body) {
-    return '<div class="mt-empty">' + IC.house + '<b>' + esc(title) + '</b>' + (body || '') + '</div>';
+    return '<div class="mt-empty">' + IC.house + '<b>' + esc(title) + '</b>' + (body ? '<span>' + body + '</span>' : '') + '</div>';
   }
 
   function planHtml() {

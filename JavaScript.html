@@ -49,6 +49,7 @@
   var state = {
     data: null, coaches: [], byId: {}, people: [],
     drawer: { coach: null, tab: 'cg', pos: 'ALL', status: 'ALL' },
+    health: { filter: '', coach: '' },
     search: { results: [], active: -1 },
     edit: null, // { id, draft: { milestones, position, ...fields }, saving }
     token: '',
@@ -163,6 +164,95 @@
     clearTimeout(toast._t);
     toast._t = setTimeout(function () { t.classList.remove('show'); }, isError ? 5000 : 2400);
   }
+  // ───────────── CG health ─────────────
+  var HEALTH = {
+    red: { label: 'Merah', order: 0 },
+    yellow: { label: 'Kuning', order: 1 },
+    green: { label: 'Hijau', order: 2 },
+  };
+  /**
+   * Health of one CG (people of that CG; Non-Aktif don't count):
+   *   Merah  — no CGL, no sponsor, or fewer than 2 members
+   *   Hijau  — CGL, at least 2 sponsors and 4+ members (more than 11 = "Bisa multi")
+   *   Kuning — everything in between
+   * Members = POSISI MEMBER or SIMPATISAN.
+   */
+  function cgHealth(list) {
+    var act = list.filter(function (p) { return !p.isCoach && !/^non/i.test(String(p.status || '').trim()); });
+    var n = function (pos) { return act.filter(function (p) { return pos.indexOf(p.position) >= 0; }).length; };
+    var cgl = n(['CGL']), sponsor = n(['SPONSOR']), member = n(['MEMBER', 'SIMPATISAN']);
+    var h = { cgl: cgl, sponsor: sponsor, member: member, multi: false, reasons: [] };
+    if (!cgl) h.reasons.push('Tidak ada CGL');
+    if (!sponsor) h.reasons.push('Tidak ada sponsor');
+    if (member < 2) h.reasons.push('Member ' + member + ' (< 2)');
+    if (h.reasons.length) h.level = 'red';
+    else if (sponsor >= 2 && member >= 4) {
+      h.level = 'green';
+      h.multi = member > 11;
+      if (h.multi) h.reasons.push(member + ' member, siap multiplikasi');
+    } else {
+      h.level = 'yellow';
+      if (sponsor < 2) h.reasons.push('Sponsor baru ' + sponsor + ' (perlu 2)');
+      if (member < 4) h.reasons.push('Member baru ' + member + ' (perlu 4)');
+    }
+    h.label = HEALTH[h.level].label;
+    return h;
+  }
+  function healthBadge(h, withMulti) {
+    return '<span class="hl-badge ' + h.level + '"><i></i>' + h.label + '</span>' +
+      (withMulti !== false && h.multi ? '<span class="hl-badge multi">' + ICON.arrow + 'Bisa multi</span>' : '');
+  }
+  /** Every real CG this session sees: [{ code, coach, cgl, people, health }]. */
+  function healthList() {
+    var out = [];
+    state.coaches.forEach(function (c) {
+      c.cgs.forEach(function (g) { out.push({ code: g.code, coach: c.key, cgl: g.cgl, people: g.people, health: g.health }); });
+    });
+    return out;
+  }
+
+  function renderHealth() {
+    var box = $('#healthGrid');
+    if (!box) return;
+    var all = healthList();
+    var f = state.health.filter, coach = state.health.coach;
+    var scoped = all.filter(function (x) { return !coach || x.coach === coach; });
+    var counts = { red: 0, yellow: 0, green: 0, multi: 0 };
+    scoped.forEach(function (x) { counts[x.health.level]++; if (x.health.multi) counts.multi++; });
+    var chips = [['', 'Semua', scoped.length], ['red', 'Merah', counts.red], ['yellow', 'Kuning', counts.yellow],
+      ['green', 'Hijau', counts.green], ['multi', 'Bisa multi', counts.multi]];
+    $('#healthChips').innerHTML = chips.map(function (c) {
+      return '<button class="chip hl-chip ' + (c[0] || 'all') + (f === c[0] ? ' active' : '') + '" data-health="' + c[0] + '">' +
+        (c[0] && c[0] !== 'multi' ? '<i></i>' : '') + esc(c[1]) + '<span class="count">' + c[2] + '</span></button>';
+    }).join('');
+    var sel = $('#healthCoach');
+    sel.hidden = state.coaches.length < 2;
+    sel.innerHTML = '<option value="">Semua coach</option>' + state.coaches.map(function (c) {
+      return '<option value="' + esc(c.key) + '"' + (coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
+    }).join('');
+    var total = scoped.length || 1;
+    $('#healthBar').innerHTML = ['green', 'yellow', 'red'].map(function (k) {
+      return counts[k] ? '<i class="' + k + '" style="width:' + (counts[k] / total * 100) + '%" title="' + HEALTH[k].label + ' ' + counts[k] + '"></i>' : '';
+    }).join('');
+    var list = scoped.filter(function (x) { return !f || (f === 'multi' ? x.health.multi : x.health.level === f); })
+      .sort(function (a, b) {
+        return HEALTH[a.health.level].order - HEALTH[b.health.level].order || a.code.localeCompare(b.code, 'id', { numeric: true });
+      });
+    box.innerHTML = list.map(function (x, i) {
+      var h = x.health;
+      return '<button class="hl-card ' + h.level + '" data-cg-open="' + esc(x.code) + '" style="animation-delay:' + Math.min(i, 16) * 25 + 'ms">' +
+        '<div class="hl-top"><span class="cg-code">' + esc(x.code) + '</span><span class="pr-main"><span class="pr-name">' +
+        esc(x.cgl ? 'CGL ' + x.cgl : 'Belum ada CGL') + '</span><span class="pr-sub">Coach ' + esc(x.coach) + '</span></span>' + healthBadge(h, false) + '</div>' +
+        '<div class="hl-nums"><span class="' + (h.cgl ? '' : 'bad') + '"><b>' + h.cgl + '</b>CGL</span>' +
+        '<span class="' + (h.sponsor >= 2 ? '' : h.sponsor ? 'meh' : 'bad') + '"><b>' + h.sponsor + '</b>Sponsor</span>' +
+        '<span class="' + (h.member > 11 ? 'up' : h.member >= 4 ? '' : h.member >= 2 ? 'meh' : 'bad') + '"><b>' + h.member + '</b>Member</span></div>' +
+        (h.reasons.length ? '<div class="hl-reasons">' + h.reasons.map(function (r) {
+          return '<span' + (h.multi ? ' class="up"' : '') + '>' + esc(r) + '</span>';
+        }).join('') + '</div>' : '<div class="hl-reasons"><span class="ok">Semua indikator terpenuhi</span></div>') +
+        '</button>';
+    }).join('') || '<div class="empty">Tidak ada CG untuk filter ini.</div>';
+  }
+
   function stackBar(counts, total) {
     return '<div class="stack">' + POSITIONS.map(function (p, i) {
       var n = counts[p.key] || 0;
@@ -172,7 +262,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open, #visiModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -212,6 +302,7 @@
     renderHero();
     renderWarnings();
     renderCoaches();
+    renderHealth();
     renderComposition();
     renderGaps();
     if (window.AOGCg) window.AOGCg.onData();
@@ -256,6 +347,7 @@
         time: cgInfo(list, 'cgTime'), area: cgInfo(list, 'cgArea'), mode: cgInfo(list, 'cgStatus'),
         active: list.filter(isActive).length,
         attendance: avgAttendance(list),
+        health: cgHealth(list),
       };
     });
     var gaps = {};
@@ -323,6 +415,10 @@
         '<div class="cc-stat"><b>' + c.cgs.length + '</b><span>CG</span></div>' +
         '<div class="cc-stat"><b>' + pct(c.active, c.members.length) + '%</b><span>Aktif</span></div>' +
         '</div>' + stackBar(c.counts, total) +
+        '<div class="cc-health">' + ['green', 'yellow', 'red'].map(function (k) {
+          var n = c.cgs.filter(function (g) { return g.health.level === k; }).length;
+          return '<span class="' + k + '"><i></i>' + n + ' ' + HEALTH[k].label + '</span>';
+        }).join('') + (c.cgs.some(function (g) { return g.health.multi; }) ? '<span class="multi">' + c.cgs.filter(function (g) { return g.health.multi; }).length + ' bisa multi</span>' : '') + '</div>' +
         '<div class="cc-foot"><span>' + (c.counts.CGL || 0) + ' CGL · ' + (c.counts.SPONSOR || 0) + ' Sponsor</span><span>Growth ' + c.avg + '%' + (c.attendance != null ? ' · Hadir ' + c.attendance + '%' : '') + '</span></div>' +
         '</button>';
     }).join('') || '<div class="empty">Belum ada data.</div>';
@@ -477,7 +573,7 @@
       return '<div class="cg-card' + (canOpen ? ' clickable' : '') + '" style="animation-delay:' + (i * 50) + 'ms"' +
         (canOpen ? ' data-cg-open="' + esc(g.code) + '"' : '') + '><div class="cg-top">' +
         '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0;flex:1">' +
-        '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + '</div>' +
+        '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + (g.code !== 'Tanpa CG' ? ' ' + healthBadge(g.health) : '') + '</div>' +
         '<div class="cg-meta">' + meta.join('') + '</div></div>' +
         (canOpen ? '<button class="btn sm cg-open-btn" data-cg-open="' + esc(g.code) + '">Lihat CG' + ICON.arrow + '</button>' : '') +
         '</div>' +
@@ -1012,6 +1108,7 @@
     if (window.AOGRestructure) window.AOGRestructure.reset();
     if (window.AOGMultiply) window.AOGMultiply.reset();
     if (window.AOGVisits) window.AOGVisits.reset();
+    if (window.AOGVisi) window.AOGVisi.reset();
     showLogin(message);
   }
 
@@ -1078,6 +1175,7 @@
     if ((el = t.closest('[data-close-modal]'))) return closeModal();
     if ((el = t.closest('[data-close-drawer]')) || t.id === 'drawerScrim') return closeDrawer();
     if ((el = t.closest('[data-person]'))) return openPerson(+el.dataset.person);
+    if ((el = t.closest('[data-health]'))) { state.health.filter = el.dataset.health; return renderHealth(); }
     if ((el = t.closest('[data-coach]'))) return openCoach(el.dataset.coach);
     if ((el = t.closest('[data-tab]'))) return setTab(el.dataset.tab);
     if ((el = t.closest('[data-pos]'))) { state.drawer.pos = el.dataset.pos; return renderTab(); }
@@ -1108,6 +1206,10 @@
     if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.dataset.field) { e.preventDefault(); saveEdit(); }
   });
 
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'healthCoach') { state.health.coach = e.target.value; renderHealth(); }
+  });
+
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       if (state.edit && $('#modalWrap').classList.contains('open')) { if (!state.edit.saving) cancelEdit(); }
@@ -1129,6 +1231,7 @@
     posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson, posBadge: posBadge,
     openCoach: openCoach, closeDrawer: closeDrawer, personRow: personRow, msPct: msPct, cgInfo: cgInfo,
     POSITIONS: POSITIONS, isActive: isActive, canCoach: canCoach, seesMany: seesMany,
+    cgHealth: cgHealth, healthBadge: healthBadge,
     parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
     /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */
     applyData: function (data) { onData(data, false, true); },

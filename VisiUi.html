@@ -1,0 +1,327 @@
+<script>
+/* "Visi" menu: the vision of each coach / TL with targets (jiwa, CG, sponsor,
+   target date). Progress numbers come from the database (Visi.gs); every
+   milestone stores the numbers at the time it was recorded, so the card shows
+   how the jiwa count moved towards the target. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  var MONTHS_LONG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  var METRICS = [
+    { key: 'people', label: 'Jiwa di CG' },
+    { key: 'cgs', label: 'CG' },
+    { key: 'sponsors', label: 'Sponsor' },
+  ];
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    eye: '<svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    flag: '<svg class="i" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+    plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  };
+
+  var S = { data: null, loading: false, owner: '', f: null, open: {} };
+
+  function today() { return (S.data && S.data.today) || A.toIso(new Date()); }
+  function d(iso) { return iso ? new Date(iso + 'T00:00:00') : null; }
+  function longDate(iso) { var x = d(iso); return x ? x.getDate() + ' ' + MONTHS_LONG[x.getMonth()] + ' ' + x.getFullYear() : ''; }
+  function shortDate(iso) { var x = d(iso); return x ? x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + String(x.getFullYear()).slice(2) : ''; }
+  function until(iso) {
+    var n = Math.round((d(iso) - d(today())) / 86400000);
+    if (n < 0) return 'Lewat ' + (-n) + ' hari';
+    if (n < 45) return n + ' hari lagi';
+    var m = Math.round(n / 30.4);
+    return m < 24 ? m + ' bulan lagi' : (m / 12).toFixed(1).replace('.', ',') + ' tahun lagi';
+  }
+  function ownerKey(o) { return o.role + '|' + o.owner; }
+  function ownerLabel(role, name) { return (role === 'TL' ? 'TL ' : 'Coach ') + name; }
+
+  // ───────────── load ─────────────
+  function load() {
+    if (S.loading) return;
+    S.loading = true;
+    if (!S.data) render();
+    A.api('getVisi').then(function (res) { S.loading = false; S.data = res; render(); }, function (err) {
+      S.loading = false;
+      if (err.isAuth) return;
+      S.data = S.data || { visions: [], owners: [] };
+      render();
+      A.toast(A.errText(err));
+    });
+  }
+
+  // ───────────── page ─────────────
+  function render() {
+    var box = $('#visiList');
+    if (!box) return;
+    if (!S.data) { box.innerHTML = '<div class="mt-empty">Memuat visi…</div>'; $('#visiChips').innerHTML = ''; return; }
+    var vs = S.data.visions;
+    var owners = {};
+    vs.forEach(function (v) { owners[ownerKey(v)] = { role: v.role, owner: v.owner }; });
+    var keys = Object.keys(owners).sort(function (a, b) { return (a[0] === 'T' ? 0 : 1) - (b[0] === 'T' ? 0 : 1) || a.localeCompare(b); });
+    if (S.owner && !owners[S.owner]) S.owner = '';
+    $('#visiChips').innerHTML = keys.length > 1 ? '<button class="chip' + (S.owner ? '' : ' active') + '" data-visi-owner="">Semua<span class="count">' + vs.length + '</span></button>' +
+      keys.map(function (k) {
+        var n = vs.filter(function (v) { return ownerKey(v) === k; }).length;
+        return '<button class="chip' + (S.owner === k ? ' active' : '') + '" data-visi-owner="' + esc(k) + '">' + esc(ownerLabel(owners[k].role, owners[k].owner)) + '<span class="count">' + n + '</span></button>';
+      }).join('') : '';
+    $('#visiChips').hidden = keys.length < 2;
+    var list = vs.filter(function (v) { return !S.owner || ownerKey(v) === S.owner; });
+    if (!list.length) {
+      box.innerHTML = '<div class="mt-empty">' + IC.eye + '<b>Belum ada visi</b><span>' +
+        (S.data.owners.length ? 'Klik <b>Visi baru</b> untuk menuliskan visi dan targetnya.' : 'Akun ini belum punya coach / TL untuk ditulis visinya.') + '</span></div>';
+      return;
+    }
+    box.innerHTML = list.map(card).join('');
+  }
+
+  function meter(m, v) {
+    var now = v.now[m.key], t = v.target[m.key], base = v.base[m.key];
+    var pct = t ? Math.min(100, Math.round(now / t * 100)) : 0;
+    var basePct = t && base != null ? Math.min(100, base / t * 100) : null;
+    var delta = base != null ? now - base : null;
+    return '<div class="vi-meter' + (now >= t ? ' done' : '') + '">' +
+      '<div class="vi-meter-top"><span>' + esc(m.label) + '</span><b>' + now + '<small> / ' + t + '</small></b></div>' +
+      '<div class="vi-track" role="img" aria-label="' + esc(m.label + ' ' + now + ' dari target ' + t) + '"><i style="width:' + pct + '%"></i>' +
+      (basePct != null ? '<em style="left:' + basePct + '%" title="Awal: ' + base + '"></em>' : '') + '</div>' +
+      '<div class="vi-meter-foot"><span>' + pct + '% dari target</span>' +
+      (delta != null ? '<span class="' + (delta > 0 ? 'up' : delta < 0 ? 'down' : '') + '">' + (delta > 0 ? '+' : '') + delta + ' sejak awal</span>' : '') + '</div></div>';
+  }
+
+  /** Single-series line of jiwa: start → each milestone → now, with the target as a dashed line. */
+  function chart(v) {
+    var pts = [];
+    if (v.base.people != null) pts.push({ date: v.at.slice(0, 10), n: v.base.people, label: 'Awal' });
+    v.milestones.forEach(function (m) { if (m.people != null) pts.push({ date: m.date, n: m.people, label: m.note }); });
+    pts.push({ date: today(), n: v.now.people, label: 'Sekarang' });
+    pts.sort(function (a, b) { return a.date.localeCompare(b.date); });
+    if (pts.length < 2) return '';
+    var W = 560, H = 150, L = 34, R = 12, T = 14, B = 24;
+    var t0 = d(pts[0].date).getTime(), t1 = Math.max(d(pts[pts.length - 1].date).getTime(), t0 + 86400000);
+    var max = Math.max(v.target.people || 0, Math.max.apply(null, pts.map(function (p) { return p.n; }))) * 1.1 || 1;
+    var x = function (iso) { return L + (d(iso).getTime() - t0) / (t1 - t0) * (W - L - R); };
+    var y = function (n) { return T + (1 - n / max) * (H - T - B); };
+    var line = pts.map(function (p, i) { return (i ? 'L' : 'M') + x(p.date).toFixed(1) + ' ' + y(p.n).toFixed(1); }).join(' ');
+    var ty = y(v.target.people);
+    var ticks = [0, Math.round(v.target.people / 2)];
+    return '<figure class="vi-chart"><figcaption>Jiwa di CG dari waktu ke waktu</figcaption>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Jiwa di CG: ' +
+      esc(pts.map(function (p) { return shortDate(p.date) + ' ' + p.n; }).join(', ')) + '; target ' + v.target.people + '">' +
+      ticks.map(function (n) { return '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(n) + '" y2="' + y(n) + '"/>' +
+        '<text class="ax" x="' + (L - 6) + '" y="' + (y(n) + 3) + '" text-anchor="end">' + n + '</text>'; }).join('') +
+      '<line class="target" x1="' + L + '" x2="' + (W - R) + '" y1="' + ty + '" y2="' + ty + '"/>' +
+      '<text class="ax tgt" x="' + (W - R) + '" y="' + (ty - 5) + '" text-anchor="end">Target ' + v.target.people + '</text>' +
+      '<path class="line" d="' + line + '"/>' +
+      pts.map(function (p, i) {
+        var last = i === pts.length - 1;
+        return '<g class="pt' + (last ? ' last' : '') + '"><circle class="hit" cx="' + x(p.date) + '" cy="' + y(p.n) + '" r="12"/>' +
+          '<circle class="dot" cx="' + x(p.date) + '" cy="' + y(p.n) + '" r="4.5"/>' +
+          '<title>' + esc(longDate(p.date) + ' · ' + p.n + ' jiwa' + (p.label ? ' · ' + p.label : '')) + '</title></g>';
+      }).join('') +
+      '<text class="ax" x="' + L + '" y="' + (H - 6) + '">' + esc(shortDate(pts[0].date)) + '</text>' +
+      '<text class="ax" x="' + (W - R) + '" y="' + (H - 6) + '" text-anchor="end">' + esc(shortDate(pts[pts.length - 1].date)) + '</text>' +
+      '</svg></figure>';
+  }
+
+  function card(v, i) {
+    var late = v.target.date && v.target.date < today();
+    var reached = METRICS.every(function (m) { return v.now[m.key] >= v.target[m.key]; });
+    var open = !!S.open[v.id];
+    var ms = v.milestones.slice().reverse();
+    return '<article class="vi-card" style="animation-delay:' + Math.min(i, 6) * 50 + 'ms">' +
+      '<header class="vi-head"><div class="avatar ' + (v.role === 'TL' ? 'vi-tl' : '') + '">' + esc(A.initials(v.owner)) + '</div>' +
+      '<div class="vi-who"><div class="vi-owner">' + esc(ownerLabel(v.role, v.owner)) + '</div>' +
+      '<div class="vi-date' + (late && !reached ? ' late' : '') + '">' + IC.cal + 'Target ' + esc(longDate(v.target.date)) + ' · ' +
+      (reached ? 'Tercapai 🎉' : esc(until(v.target.date))) + '</div></div>' +
+      (v.canEdit ? '<div class="mt-actions"><button type="button" class="icon-sm" title="Ubah visi" data-visi-edit="' + esc(v.id) + '">' + IC.edit + '</button>' +
+        '<button type="button" class="icon-sm danger" title="Hapus visi" data-visi-del="' + esc(v.id) + '">' + IC.trash + '</button></div>' : '') + '</header>' +
+      '<blockquote class="vi-text">' + esc(v.text) + '</blockquote>' +
+      '<div class="vi-meters">' + METRICS.map(function (m) { return meter(m, v); }).join('') + '</div>' +
+      chart(v) +
+      '<div class="vi-ms-head"><h4>' + IC.flag + 'Milestone <span class="count">' + v.milestones.length + '</span></h4>' +
+      (v.canEdit ? '<button type="button" class="btn sm primary" data-visi-ms="' + esc(v.id) + '">' + IC.plus + 'Tambah milestone</button>' : '') + '</div>' +
+      (ms.length ? '<ol class="vi-ms">' + (open ? ms : ms.slice(0, 3)).map(function (m, j) {
+        var prev = ms[j + 1];
+        var dl = prev && prev.people != null && m.people != null ? m.people - prev.people : null;
+        return '<li><div class="vi-ms-date">' + esc(shortDate(m.date)) + '</div><div class="vi-ms-body"><p>' + esc(m.note) + '</p>' +
+          '<div class="vi-ms-nums"><span>' + m.people + ' jiwa' + (dl ? ' <b class="' + (dl > 0 ? 'up' : 'down') + '">' + (dl > 0 ? '+' : '') + dl + '</b>' : '') + '</span>' +
+          '<span>' + m.cgs + ' CG</span><span>' + m.sponsors + ' sponsor</span><span class="by">' + esc(m.by) + '</span></div></div>' +
+          (v.canEdit ? '<button type="button" class="icon-sm danger" title="Hapus milestone" data-visi-ms-del="' + esc(m.id) + '">' + IC.trash + '</button>' : '') + '</li>';
+      }).join('') + '</ol>' +
+        (ms.length > 3 ? '<button type="button" class="link-btn" data-visi-more="' + esc(v.id) + '">' + (open ? 'Tampilkan lebih sedikit' : 'Lihat semua ' + ms.length + ' milestone') + '</button>' : '')
+        : '<div class="vi-ms-empty">Belum ada milestone. Catat setiap ada kemajuan (CG baru lahir, sponsor baru, dll.); angkanya terekam otomatis.</div>') +
+      '</article>';
+  }
+
+  // ───────────── forms ─────────────
+  function byId(id) { return (S.data.visions || []).filter(function (v) { return v.id === id; })[0]; }
+  function show() { $('#visiModalWrap').classList.add('open'); $('#visiModalWrap').setAttribute('aria-hidden', 'false'); A.updateLock(); }
+  function closeForm() {
+    if (!S.f || S.f.saving) return;
+    S.f = null;
+    $('#visiModalWrap').classList.remove('open');
+    $('#visiModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+  function head(icon, title, sub) {
+    return '<div class="m-head"><div class="m-head-row"><div class="avatar lg vi-avatar">' + icon + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div><div class="m-sub">' + esc(sub) + '</div></div>' +
+      '<button class="close-btn dark" data-visi-close aria-label="Tutup">' + IC.close + '</button></div></div>';
+  }
+  function footer(label, ok) {
+    return '<div class="m-footer"><span class="ldp-err" id="viErr">' + esc(S.f.err || '') + '</span><button type="button" class="btn" data-visi-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="viSave"' + (ok ? '' : ' disabled') + '><span class="spin"></span>' + IC.check + '<span id="viSaveLabel">' + esc(label) + '</span></button></div>';
+  }
+
+  function openVisi(v) {
+    var owners = S.data.owners;
+    if (!v && !owners.length) { A.toast('Akun ini belum punya coach / TL untuk ditulis visinya.'); return; }
+    var first = owners[0];
+    var pref = S.owner ? owners.filter(function (o) { return o.role + '|' + o.name === S.owner; })[0] : null;
+    var o = pref || first;
+    S.f = {
+      mode: 'visi', id: v ? v.id : '', owner: v ? v.owner : o.name, role: v ? v.role : o.role,
+      text: v ? v.text : '', people: v ? String(v.target.people) : '', cgs: v ? String(v.target.cgs) : '',
+      sponsors: v ? String(v.target.sponsors) : '', date: v ? v.target.date : '', err: '', saving: false,
+    };
+    renderVisi();
+    show();
+    setTimeout(function () { var el = $('#viText'); if (el) el.focus(); }, 300);
+  }
+
+  function visiOk() {
+    var f = S.f;
+    return f.text.trim().length >= 5 && /^\d+$/.test(f.people) && +f.people > 0 && /^\d+$/.test(f.cgs) && +f.cgs > 0 &&
+      /^\d+$/.test(f.sponsors) && +f.sponsors > 0 && !!f.date;
+  }
+
+  function renderVisi() {
+    var f = S.f;
+    var owners = S.data.owners;
+    var cur = owners.filter(function (o) { return o.role === f.role && o.name === f.owner; })[0];
+    var now = cur ? cur.now : (f.id ? byId(f.id).now : { people: 0, cgs: 0, sponsors: 0 });
+    var num = function (id, key, label) {
+      return '<div class="field"><label for="' + id + '">Target ' + label + '</label><input id="' + id + '" type="number" min="1" inputmode="numeric" value="' + esc(f[key]) + '" placeholder="sekarang ' + now[key] + '">' +
+        '<div class="hint soft">Sekarang ' + now[key] + '</div></div>';
+    };
+    $('#visiModal').innerHTML = head(IC.eye, f.id ? 'Ubah visi' : 'Visi baru', ownerLabel(f.role, f.owner)) +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      (f.id || owners.length < 2 ? '' : '<div class="field wide"><label for="viOwner">Visi milik</label><select id="viOwner" class="mul-select">' +
+        owners.map(function (o) {
+          var k = o.role + '|' + o.name;
+          return '<option value="' + esc(k) + '"' + (o.role === f.role && o.name === f.owner ? ' selected' : '') + '>' + esc(ownerLabel(o.role, o.name)) + '</option>';
+        }).join('') + '</select></div>') +
+      '<div class="field wide"><label for="viText">Visi</label><textarea id="viText" rows="4" maxlength="3000" placeholder="Gambaran ke depan yang ingin dicapai…">' + esc(f.text) + '</textarea></div>' +
+      num('viPeople', 'people', 'jiwa di CG') + num('viCgs', 'cgs', 'jumlah CG') + num('viSponsors', 'sponsors', 'jumlah sponsor') +
+      '<div class="field"><label for="viDate">Tanggal target</label><input id="viDate" type="date" value="' + esc(f.date) + '"></div>' +
+      '</div><div class="hint soft vi-note">Progres dihitung otomatis dari database: jiwa di CG (tanpa yang Non-Aktif), jumlah CG, dan jumlah sponsor ' +
+      (f.role === 'TL' ? 'dari semua coach di bawah ' + esc(f.owner) : 'milik coach ' + esc(f.owner)) + '.</div></div>' +
+      footer(f.id ? 'Simpan visi' : 'Simpan visi', visiOk());
+  }
+
+  function openMilestone(v) {
+    S.f = { mode: 'ms', visiId: v.id, date: today(), note: '', err: '', saving: false };
+    $('#visiModal').innerHTML = head(IC.flag, 'Milestone baru', ownerLabel(v.role, v.owner)) +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field"><label for="viMsDate">Tanggal</label><input id="viMsDate" type="date" max="' + today() + '" value="' + today() + '"></div>' +
+      '<div class="field"><label>Angka yang direkam</label><input value="' + esc(v.now.people + ' jiwa · ' + v.now.cgs + ' CG · ' + v.now.sponsors + ' sponsor') + '" disabled></div>' +
+      '<div class="field wide"><label for="viMsNote">Catatan progres</label><textarea id="viMsNote" rows="3" maxlength="2000" placeholder="mis. AOG 23 lahir dari AOG 05, 2 sponsor baru…"></textarea></div>' +
+      '</div></div>' + footer('Simpan milestone', false);
+    show();
+    setTimeout(function () { var el = $('#viMsNote'); if (el) el.focus(); }, 300);
+  }
+
+  function updateSave() {
+    var f = S.f, b = $('#viSave');
+    if (!f || !b) return;
+    b.disabled = f.saving || (f.mode === 'visi' ? !visiOk() : !(f.date && f.date <= today() && f.note.trim().length >= 3));
+  }
+
+  function save() {
+    var f = S.f;
+    if (!f || f.saving) return;
+    var call = f.mode === 'visi' ? 'saveVisi' : 'addVisiMilestone';
+    var body = f.mode === 'visi'
+      ? { id: f.id, owner: f.owner, role: f.role, text: f.text, people: f.people, cgs: f.cgs, sponsors: f.sponsors, date: f.date }
+      : { visiId: f.visiId, date: f.date, note: f.note };
+    f.saving = true;
+    $('#viSave').disabled = true;
+    $('#viSave').classList.add('loading');
+    $('#viSaveLabel').textContent = 'Menyimpan…';
+    A.api(call, body).then(function (res) {
+      f.saving = false;
+      closeForm();
+      S.data = res;
+      render();
+      A.toast(f.mode === 'visi' ? 'Visi tersimpan ✨' : 'Milestone tercatat 🎯');
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      $('#viSave').classList.remove('loading');
+      $('#viSaveLabel').textContent = f.mode === 'visi' ? 'Simpan visi' : 'Simpan milestone';
+      $('#viErr').textContent = A.errText(err);
+      updateSave();
+    });
+  }
+
+  function remove(call, id, what) {
+    if (!window.confirm('Hapus ' + what + '?')) return;
+    A.api(call, id).then(function (res) { S.data = res; render(); A.toast('Dihapus'); }, function (err) {
+      if (!err.isAuth) A.toast(A.errText(err));
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if (t.closest('#newVisiBtn')) return S.data && openVisi(null);
+    if ((el = t.closest('[data-visi-owner]'))) { S.owner = el.dataset.visiOwner; return render(); }
+    if ((el = t.closest('[data-visi-edit]'))) return openVisi(byId(el.dataset.visiEdit));
+    if ((el = t.closest('[data-visi-del]'))) { var v = byId(el.dataset.visiDel); return v && remove('deleteVisi', v.id, 'visi ' + ownerLabel(v.role, v.owner) + ' beserta semua milestonenya'); }
+    if ((el = t.closest('[data-visi-ms]'))) return openMilestone(byId(el.dataset.visiMs));
+    if ((el = t.closest('[data-visi-ms-del]'))) return remove('deleteVisiMilestone', el.dataset.visiMsDel, 'milestone ini');
+    if ((el = t.closest('[data-visi-more]'))) { S.open[el.dataset.visiMore] = !S.open[el.dataset.visiMore]; return render(); }
+    if (!S.f) return;
+    if (t.closest('[data-visi-close]')) return closeForm();
+    if (t.closest('#viSave')) return save();
+  });
+
+  document.addEventListener('input', function (e) {
+    var f = S.f, id = e.target.id;
+    if (!f) return;
+    var map = { viText: 'text', viPeople: 'people', viCgs: 'cgs', viSponsors: 'sponsors', viDate: 'date', viMsDate: 'date', viMsNote: 'note' };
+    if (map[id]) { f[map[id]] = e.target.value; updateSave(); }
+  });
+
+  document.addEventListener('change', function (e) {
+    var f = S.f;
+    if (!f || e.target.id !== 'viOwner') return;
+    var parts = e.target.value.split('|');
+    f.role = parts[0]; f.owner = parts.slice(1).join('|');
+    renderVisi();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (S.f && e.key === 'Escape') { e.stopPropagation(); closeForm(); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.visi = function () { render(); load(); };
+  window.AOGVisi = {
+    reset: function () {
+      S.data = null; S.owner = ''; S.open = {};
+      if (S.f) S.f.saving = false;
+      S.f = null;
+      var w = $('#visiModalWrap');
+      if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+    },
+  };
+})();
+</script>

@@ -30,6 +30,8 @@ const CONFIG = {
   // One row per new CG born from an existing one (see Multiply.gs).
   MULTIPLY_SHEET_NAME: 'Multiplikasi CG',
   VISIT_SHEET_NAME: 'Visit CG',
+  VISI_SHEET_NAME: 'Visi',
+  VISI_MILESTONE_SHEET_NAME: 'Visi Milestone',
   TIME_ZONE: 'Asia/Jakarta',
 };
 

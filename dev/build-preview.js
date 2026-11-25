@@ -116,6 +116,7 @@ function main() {
     ${read('Restructure.gs')}
     ${read('Multiply.gs')}
     ${read('Visits.gs')}
+    ${read('Visi.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
@@ -123,7 +124,8 @@ function main() {
       getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation,
       updateCgInfo: updateCgInfo, movePerson: movePerson, deletePerson: deletePerson,
       multiplyCg: multiplyCg, getMultiplications: getMultiplications,
-      getVisits: getVisits, scheduleVisit: scheduleVisit, logVisit: logVisit, deleteVisit: deleteVisit };
+      getVisits: getVisits, scheduleVisit: scheduleVisit, logVisit: logVisit, deleteVisit: deleteVisit,
+      getVisi: getVisi, saveVisi: saveVisi, deleteVisi: deleteVisi, addVisiMilestone: addVisiMilestone, deleteVisiMilestone: deleteVisiMilestone };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

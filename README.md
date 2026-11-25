@@ -63,6 +63,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `MultiplyUi.html` | Multiplikasi menu (history) and the new-CG form |
 | `Visits.gs` | Visit CG: schedules and visit logs in the "Visit CG" tab |
 | `VisitsUi.html` | Visit CG menu (Jadwal, Log, Cakupan) and forms |
+| `Visi.gs` | Visi of coaches / TLs, targets and milestones |
+| `VisiUi.html` | Visi menu, progress meters and milestone timeline |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -75,8 +77,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply` and `Visits`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi` and `VisitsUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits` and `Visi`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi` and `VisiUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -136,6 +138,32 @@ npm i -g @google/clasp && clasp login
 clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboard"
 clasp push && clasp deploy
 ```
+
+## Kesehatan CG (dashboard)
+
+Every CG gets a colour, computed from the database (people with STATUS Non-Aktif don't count;
+"member" = POSISI MEMBER or SIMPATISAN):
+
+- **Merah**: no CGL, no sponsor, or fewer than 2 members.
+- **Hijau**: a CGL, at least 2 sponsors and at least 4 members. More than 11 members adds **Bisa multi**.
+- **Kuning**: everything in between (e.g. 1 sponsor, or 2–3 members).
+
+The rules are checked in that order. Shown in the "Kesehatan CG" section of the dashboard, on the coach cards,
+the CG cards in the coach drawer and the CG page. The rule lives in `cgHealth` in `JavaScript.html`.
+
+## Visi and Visi Milestone tabs
+
+- **Visi** menu: each coach and TL writes their vision with target jiwa in CG, number of CG, number of sponsors
+  and a target date (several visi per person are fine). Admin can write one for any coach or TL.
+- Progress is counted from the database, never typed: jiwa in a CG (not Non-Aktif), distinct CGs and sponsors,
+  for a coach their own rows, for a TL every row with their name in the TL column. The numbers at creation are
+  kept as AWAL.
+- **Tambah milestone**: date + note; the numbers of that moment are recorded with it, which draws the
+  jiwa-over-time line on the card.
+- Access: a coach sees and updates their own visi; a TL their own and those of their coaches; admin all.
+- Tabs (created automatically): **Visi** (ID, PEMILIK, PERAN, VISI, TARGET JIWA, TARGET CG, TARGET SPONSOR,
+  TARGET TANGGAL, AWAL JIWA, AWAL CG, AWAL SPONSOR, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI) and
+  **Visi Milestone** (ID, VISI ID, TANGGAL, CATATAN, JIWA, CG, SPONSOR, OLEH, DICATAT PADA).
 
 ## TL column and the Visit CG tab
 

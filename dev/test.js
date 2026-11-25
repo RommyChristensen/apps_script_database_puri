@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -902,6 +902,46 @@ test('multiplikasi / pindah CG to another coach also updates TL', () => {
   const target = people().find((x) => x.coach === 'David' && !x.isCoach && x.cg).cg;
   s.raw.movePerson(admin, { id: p.id, name: p.name, cg: target });
   assert.strictEqual(s.grid[p.id - 1][H.indexOf('TL')], 'Budi');
+});
+
+console.log('Visi.gs');
+test('visi: coach writes their own, numbers counted from the database, milestones snapshot', () => {
+  const { s, angie, people, admin } = vSetup();
+  const own = (coach) => people().filter((p) => p.coach === coach && !p.isCoach && p.cg && !/^non/i.test(p.status));
+  const want = { people: own('Angie').length, cgs: new Set(own('Angie').map((p) => p.cg)).size, sponsors: own('Angie').filter((p) => p.position === 'SPONSOR').length };
+  let res = s.raw.saveVisi(angie, { text: 'Puri dipenuhi CG yang sehat', people: 60, cgs: 8, sponsors: 12, date: '2027-12-31' });
+  const v = res.visions[0];
+  assert.deepStrictEqual([v.owner, v.role, v.target.people, v.target.date], ['Angie', 'Coach', 60, '2027-12-31']);
+  assert.deepStrictEqual(clone(v.base), want);
+  assert.deepStrictEqual(clone(v.now), want);
+  assert.throws(() => s.raw.saveVisi(angie, { owner: 'Carla', role: 'Coach', text: 'Visi orang lain', people: 1, cgs: 1, sponsors: 1, date: '2027-01-01' }), /tidak bisa menulis/);
+  assert.throws(() => s.raw.saveVisi(angie, { text: 'Visi besar', people: 0, cgs: 1, sponsors: 1, date: '2027-01-01' }), /target jumlah jiwa/);
+  res = s.raw.addVisiMilestone(angie, { visiId: v.id, date: '2026-11-20', note: 'AOG 23 lahir' });
+  const m = res.visions[0].milestones[0];
+  assert.deepStrictEqual([m.note, m.people, m.cgs, m.sponsors], ['AOG 23 lahir', want.people, want.cgs, want.sponsors]);
+  assert.throws(() => s.raw.addVisiMilestone(angie, { visiId: v.id, date: '2099-01-01', note: 'nanti' }), /masa depan/);
+  // TL Rommy sees Angie's visi and can add a milestone; TL Budi cannot
+  assert.strictEqual(s.raw.getVisi(s.token).visions.length, 1);
+  s.raw.addVisiMilestone(s.token, { visiId: v.id, date: '2026-11-21', note: 'Dicek TL' });
+  const budi = s.raw.login('budi', 'budi-pass').token;
+  assert.strictEqual(s.raw.getVisi(budi).visions.length, 0);
+  assert.throws(() => s.raw.addVisiMilestone(budi, { visiId: v.id, date: '2026-11-21', note: 'x x x' }), /tidak bisa menulis/);
+  // admin sees it, deleting removes the milestones too
+  assert.strictEqual(s.raw.getVisi(admin).visions[0].milestones.length, 2);
+  s.raw.deleteVisi(admin, v.id);
+  assert.strictEqual(s.raw.getVisi(admin).visions.length, 0);
+  assert.strictEqual(s.mocks.spreadsheet.getSheetByName('Visi Milestone').getLastRow(), 1);
+});
+
+test('visi: TL visi counts all coaches under the TL; admin can write for anyone', () => {
+  const { s, admin, people } = vSetup();
+  const under = people().filter((p) => (p.coach === 'Angie' || p.coach === 'Carla') && !p.isCoach && p.cg && !/^non/i.test(p.status));
+  const v = s.raw.saveVisi(s.token, { text: 'Visi TL Rommy', people: 300, cgs: 30, sponsors: 40, date: '2028-06-30' }).visions[0];
+  assert.deepStrictEqual([v.owner, v.role, v.now.people], ['Rommy Christensen', 'TL', under.length]);
+  const owners = s.raw.getVisi(s.token).owners.map((o) => o.role + ':' + o.name);
+  assert.deepStrictEqual(clone(owners).sort(), ['Coach:Angie', 'Coach:Carla', 'TL:Rommy Christensen']);
+  const forBudi = s.raw.saveVisi(admin, { owner: 'Budi', role: 'TL', text: 'Visi TL Budi', people: 100, cgs: 10, sponsors: 10, date: '2028-01-01' });
+  assert.ok(forBudi.visions.some((x) => x.owner === 'Budi' && x.role === 'TL'));
 });
 
 const csv = process.argv[2];
