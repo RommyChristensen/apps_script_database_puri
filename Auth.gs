@@ -6,6 +6,8 @@
  *   USERNAME | PASSWORD | COACH | ROLE
  *   angie    | rahasia1 | Angie | COACH     → sees only people whose COACH is "Angie"
  *   rommy    | ••••••   |       | ADMIN     → sees every coach
+ *   tl       | ••••••   | Rommy Christensen | TL → sees every coach whose rows
+ *                                     have this name in the database's TL column
  *
  * - Type a password in plain text. After its first successful login it is
  *   replaced by a salted SHA-256 hash (sha256$<salt>$<hex>), so the tab never
@@ -129,6 +131,7 @@ function login(username, password) {
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
   const session = { username: acc.username, coach: acc.coach, role: acc.role, stamp: accountStamp_(acc) };
   cache.put('session:' + token, JSON.stringify(session), AUTH.SESSION_HOURS * 3600);
+  if (session.role === 'TL') session.coaches = tlCoaches_(ss, session.coach);
   return { token: token, user: publicUser_(session) };
 }
 
@@ -138,7 +141,10 @@ function logout(token) {
 }
 
 function publicUser_(s) {
-  return { username: s.username, coach: s.coach, isAdmin: s.role === 'ADMIN' };
+  return {
+    username: s.username, coach: s.coach, role: s.role || 'COACH',
+    isAdmin: s.role === 'ADMIN', isTl: s.role === 'TL', coaches: s.role === 'TL' ? (s.coaches || []) : undefined,
+  };
 }
 
 /**
@@ -157,10 +163,38 @@ function requireSession_(token, ss) {
     throw authError_('Akun berubah atau dinonaktifkan. Silakan masuk lagi.');
   }
   cache.put('session:' + token, raw, AUTH.SESSION_HOURS * 3600); // sliding expiry
+  if (s.role === 'TL') s.coaches = tlCoaches_(ss, s.coach);
   return s;
+}
+
+/**
+ * Coaches under a TL: those with the TL's name in the TL column of the
+ * database. Cached for a few minutes (one read of the database otherwise).
+ */
+function tlCoaches_(ss, tlName) {
+  const cache = CacheService.getScriptCache();
+  const key = 'tl:' + norm_(tlName).replace(/\s+/g, '_').slice(0, 200);
+  const hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  const people = parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people;
+  const out = [];
+  people.forEach(function (p) {
+    if (!p.isLeader && p.coach && norm_(p.tl) === norm_(tlName) && out.indexOf(p.coach) < 0) out.push(p.coach);
+  });
+  cache.put(key, JSON.stringify(out), 300);
+  return out;
+}
+
+/** 'Admin' | 'TL' | 'Coach' — how this session is labelled in logs. */
+function roleLabel_(session) {
+  return session.role === 'ADMIN' ? 'Admin' : session.role === 'TL' ? 'TL' : 'Coach';
 }
 
 /** True when the session may see/edit people of this coach. */
 function canAccessCoach_(session, coach) {
-  return session.role === 'ADMIN' || norm_(coach) === norm_(session.coach);
+  if (session.role === 'ADMIN') return true;
+  if (session.role === 'TL') {
+    return (session.coaches || []).some(function (c) { return norm_(c) === norm_(coach); });
+  }
+  return norm_(coach) === norm_(session.coach);
 }

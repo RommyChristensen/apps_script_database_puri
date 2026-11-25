@@ -29,6 +29,7 @@ const CONFIG = {
   ARCHIVE_SHEET_NAME: 'Arsip Jemaat',
   // One row per new CG born from an existing one (see Multiply.gs).
   MULTIPLY_SHEET_NAME: 'Multiplikasi CG',
+  VISIT_SHEET_NAME: 'Visit CG',
   TIME_ZONE: 'Asia/Jakarta',
 };
 
@@ -106,6 +107,7 @@ const MILESTONES = [
 /** Field → accepted header names (first match wins, so order matters). */
 const FIELDS = {
   coach: ['COACH'],
+  tl: ['TL'],
   cg: ['NO CG'],
   name: ['NAMA', 'NAME'],
   cgStatus: ['STATUS CG'],
@@ -339,7 +341,7 @@ function logEdit_(ss, row, name, changes, session) {
       log.setFrozenRows(1);
       log.getRange('A1:E1').setFontWeight('bold');
     }
-    const who = session.username + (session.role === 'ADMIN' ? ' (admin)' : ' (coach ' + session.coach + ')');
+    const who = session.username + (session.role === 'ADMIN' ? ' (admin)' : session.role === 'TL' ? ' (TL ' + session.coach + ')' : ' (coach ' + session.coach + ')');
     log.appendRow([
       new Date(), who, row, name,
       changes.map(function (c) { return c.label + ': ' + (c.from || '—') + ' → ' + (c.to || '—'); }).join('\n'),
@@ -473,6 +475,7 @@ function parseDatabase_(values) {
     people.push({
       id: i + 1, // sheet row number
       coach: coach,
+      tl: get(row, 'tl'),
       isCoach: isCoach,
       cg: cg,
       name: name,
@@ -524,7 +527,7 @@ function parseDatabase_(values) {
   return {
     people: people,
     coaches: coachOrder.map(function (c) {
-      return { key: c, name: c, fullName: coachFullName[c] || '' };
+      return { key: c, name: c, fullName: coachFullName[c] || '', tl: tlOfCoach_(people, c) };
     }),
     warnings: warnings,
     columns: col,
@@ -542,6 +545,18 @@ function toInt_(s) {
  * Finds the header row (the one containing "NAMA"), the optional milestone
  * sub-header row below it, and maps every known field to a 0-based column.
  */
+/** The TL of a coach: the most common TL value among that coach's rows ('' if none). */
+function tlOfCoach_(people, coach) {
+  const counts = {};
+  let best = '', n = 0;
+  people.forEach(function (p) {
+    if (p.coach !== coach || !p.tl) return;
+    counts[p.tl] = (counts[p.tl] || 0) + 1;
+    if (counts[p.tl] > n) { n = counts[p.tl]; best = p.tl; }
+  });
+  return best;
+}
+
 function mapColumns_(values) {
   const warnings = [];
   let headerRow = -1;

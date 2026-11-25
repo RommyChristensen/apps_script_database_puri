@@ -167,8 +167,8 @@
       return '<option value="' + s.key + '"' + (L.filter.step === s.key ? ' selected' : '') + '>Menuju ' + esc(s.label) + '</option>';
     }).join('');
     var coach = $('#ldpCoach');
-    coach.hidden = !isAdmin();
-    if (isAdmin()) {
+    coach.hidden = !A.seesMany();
+    if (A.seesMany()) {
       coach.innerHTML = '<option value="">Semua coach</option>' + (A.state.coaches || []).map(function (c) {
         return '<option value="' + esc(c.key) + '"' + (L.filter.coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
       }).join('');
@@ -223,7 +223,7 @@
       return '<article class="ldp-card st-' + x.status + '" style="animation-delay:' + Math.min(i, 14) * 30 + 'ms">' +
         '<button class="ldp-who" data-person="' + p.id + '"><span class="avatar sm soft">' + esc(A.initials(p.name)) + '</span>' +
         '<span class="pr-main"><span class="pr-name">' + esc(p.name) + '</span><span class="pr-sub">' +
-        esc([p.cg, isAdmin() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span>' + A.posBadge(p) + '</button>' +
+        esc([p.cg, A.seesMany() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span>' + A.posBadge(p) + '</button>' +
         '<div class="ldp-path">' + stepper(x) + '<div class="ldp-now">' +
         (x.cur ? '<span class="ldp-next">Menuju <b>' + esc(x.cur.step.label) + '</b></span>' : '') + statusChip(x) +
         (x.updated ? '<span class="ldp-chip ok">' + IC.check + 'Diupdate bulan ini</span>' : '') + '</div></div>' +

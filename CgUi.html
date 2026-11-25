@@ -48,7 +48,7 @@
   }
   function canEdit(list) {
     var u = A.state.data && A.state.data.user;
-    return !!(u && list.length && (u.isAdmin || String(u.coach).toLowerCase() === String(list[0].coach).toLowerCase()));
+    return !!(u && list.length && A.canCoach(list[0].coach));
   }
 
   // ───────────── open / close ─────────────
@@ -125,6 +125,7 @@
       '<h1>' + esc(C.code) + '</h1>' +
       '<p class="hero-sub">' + (cglRow ? 'CGL ' + esc(cglRow.name) : 'Belum ada CGL di database') + '</p>' +
       (canEdit(list) ? '<div class="cg-hero-actions"><button class="btn cg-edit-btn" data-cg-edit>' + IC.edit + 'Ubah info CG</button>' +
+        (window.AOGVisits ? '<button class="btn cg-edit-btn" data-visit-plan="' + esc(C.code) + '">' + IC.clock + 'Jadwalkan visit</button>' : '') +
         (window.AOGMultiply ? '<button class="btn cg-edit-btn" data-mul-open="' + esc(C.code) + '">' + IC.sprout + 'Multiplikasi</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="hero-stats">' + stats.map(function (s) {
         return '<div class="stat"><div class="stat-num">' + s.n + '</div><div class="stat-label">' + esc(s.label) + '</div><div class="stat-hint">' + esc(s.hint) + '</div></div>';

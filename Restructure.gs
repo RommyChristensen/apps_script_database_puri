@@ -70,6 +70,8 @@ function movePerson(token, req) {
     }
     const cgl = target.filter(function (p) { return p.position === 'CGL'; })[0];
     const want = { cg: code, cgl: cgl ? cgl.name : '', coach: target[0].coach };
+    const tl = tlOfCoach_(db.people, target[0].coach);
+    if (tl) want.tl = tl;
     CG_INFO_FIELDS.forEach(function (k) { want[k] = cgInfoOf_(target, k); });
     const changes = setRowFields_(db, person.id, want);
     SpreadsheetApp.flush();
@@ -167,7 +169,7 @@ function cgInfoOf_(members, key) {
 }
 
 const ROW_FIELD_LABELS_ = {
-  cg: 'NO CG', cgl: 'CGL', coach: 'COACH', cgTime: 'Waktu CG', cgStatus: 'Status CG', cgArea: 'Daerah CG',
+  cg: 'NO CG', cgl: 'CGL', coach: 'COACH', tl: 'TL', cgTime: 'Waktu CG', cgStatus: 'Status CG', cgArea: 'Daerah CG',
   position: 'Posisi', dateCgl: 'Tgl jadi CGL',
 };
 

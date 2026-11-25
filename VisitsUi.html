@@ -1,0 +1,406 @@
+<script>
+/* "Visit CG" menu: coaches, TLs and admins schedule visits to CGs and log
+   them (evaluation + action for the CGL). Tabs: Jadwal (planned), Log (done),
+   Cakupan (every CG with its last / next visit). Talks to Visits.gs. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  var MONTHS_LONG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  var STALE_DAYS = 90;
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    clock: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    note: '<svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h5"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    users: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
+    flag: '<svg class="i" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+    house: '<svg class="i" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>',
+    lock: '<svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  };
+
+  var V = { visits: null, today: '', loading: false, tab: 'plan', q: '', coach: '', f: null };
+
+  function today() { return V.today || A.toIso(new Date()); }
+  function d(iso) { return iso ? new Date(iso + 'T00:00:00') : null; }
+  function daysBetween(a, b) { return Math.round((d(b) - d(a)) / 86400000); }
+  function longDate(iso) { var x = d(iso); return x ? x.getDate() + ' ' + MONTHS_LONG[x.getMonth()] + ' ' + x.getFullYear() : ''; }
+  function ago(iso) {
+    var n = daysBetween(iso, today());
+    return n <= 0 ? 'hari ini' : n === 1 ? 'kemarin' : n < 30 ? n + ' hari lalu' : n < 365 ? Math.round(n / 30) + ' bulan lalu' : Math.round(n / 365) + ' tahun lalu';
+  }
+  function until(iso) {
+    var n = daysBetween(today(), iso);
+    return n === 0 ? 'Hari ini' : n === 1 ? 'Besok' : n > 1 ? n + ' hari lagi' : 'Lewat ' + (-n) + ' hari';
+  }
+
+  /** CGs this session can see: { code, coach, cgl, time, area, size }. */
+  function cgs() {
+    var by = {};
+    (A.state.people || []).forEach(function (p) {
+      if (p.isCoach || !p.cg) return;
+      (by[p.cg] = by[p.cg] || []).push(p);
+    });
+    return Object.keys(by).map(function (code) {
+      var list = by[code];
+      var cgl = list.filter(function (p) { return p.position === 'CGL'; })[0];
+      return { code: code, coach: list[0].coach, cgl: cgl ? cgl.name : A.cgInfo(list, 'cgl'), time: A.cgInfo(list, 'cgTime'),
+        area: A.cgInfo(list, 'cgArea'), size: list.length };
+    }).filter(function (c) { return A.canCoach(c.coach); })
+      .sort(function (a, b) { return a.coach.localeCompare(b.coach) || a.code.localeCompare(b.code, 'id', { numeric: true }); });
+  }
+
+  function matches(v) {
+    if (V.coach && v.coach !== V.coach) return false;
+    var q = V.q.toLowerCase().trim();
+    return !q || [v.cg, v.cgl, v.coach, v.visitor, v.plan, v.evaluation, v.actions].join(' ').toLowerCase().indexOf(q) >= 0;
+  }
+  function planned() { return (V.visits || []).filter(function (v) { return v.status !== 'Selesai'; }); }
+  function done() { return (V.visits || []).filter(function (v) { return v.status === 'Selesai'; }); }
+  function lastVisit(code) { return done().filter(function (v) { return v.cg === code; })[0]; }
+  function nextVisit(code) {
+    return planned().filter(function (v) { return v.cg === code && v.date >= today(); })
+      .sort(function (a, b) { return a.date.localeCompare(b.date); })[0];
+  }
+
+  // ───────────── load ─────────────
+  function load() {
+    if (V.loading) return;
+    V.loading = true;
+    if (!V.visits) render();
+    A.api('getVisits').then(function (res) {
+      V.loading = false;
+      apply(res);
+    }, function (err) {
+      V.loading = false;
+      if (err.isAuth) return;
+      V.visits = V.visits || [];
+      render();
+      A.toast(A.errText(err));
+    });
+  }
+  function apply(res) {
+    V.visits = res.visits || [];
+    V.today = res.today || V.today;
+    render();
+    badge();
+  }
+  function badge() {
+    var b = $('#visitBadge');
+    if (!b) return;
+    var n = planned().filter(function (v) { return v.canEdit && v.date <= today(); }).length;
+    b.hidden = !n;
+    b.textContent = n;
+  }
+
+  // ───────────── page ─────────────
+  function render() {
+    var box = $('#visitList');
+    if (!box) return;
+    renderFilters();
+    renderStats();
+    $$('#visitTabs [data-visit-tab]').forEach(function (b) { b.classList.toggle('active', b.dataset.visitTab === V.tab); });
+    if (!V.visits) { box.innerHTML = '<div class="mt-empty">Memuat visit…</div>'; return; }
+    box.className = 'mt-list' + (V.tab === 'cover' ? ' vs-cover' : '');
+    box.innerHTML = V.tab === 'plan' ? planHtml() : V.tab === 'log' ? logHtml() : coverHtml();
+  }
+
+  function renderFilters() {
+    var sel = $('#visitCoach');
+    sel.hidden = !A.seesMany();
+    if (A.seesMany()) {
+      sel.innerHTML = '<option value="">Semua coach</option>' + (A.state.coaches || []).map(function (c) {
+        return '<option value="' + esc(c.key) + '"' + (V.coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
+      }).join('');
+    }
+  }
+
+  function renderStats() {
+    var p = planned(), month = today().slice(0, 7);
+    var all = cgs().filter(function (c) { return !V.coach || c.coach === V.coach; });
+    var stale = all.filter(function (c) { var l = lastVisit(c.code); return !l || daysBetween(l.visitDate, today()) > STALE_DAYS; }).length;
+    var stats = [
+      { n: p.filter(function (v) { return v.date >= today(); }).length, label: 'Visit terjadwal', cls: 'is-ok' },
+      { n: p.filter(function (v) { return v.date < today(); }).length, label: 'Belum diisi log', cls: 'is-warn' },
+      { n: done().filter(function (v) { return v.visitDate.slice(0, 7) === month; }).length, label: 'Visit bulan ini' },
+      { n: stale + '/' + all.length, label: 'CG belum divisit 3 bln' },
+    ];
+    $('#visitStats').innerHTML = stats.map(function (s, i) {
+      return '<div class="mt-stat ' + (s.cls && s.n ? s.cls : '') + '" style="animation-delay:' + i * 40 + 'ms"><b>' + s.n + '</b><span>' + esc(s.label) + '</span></div>';
+    }).join('');
+    var counts = { plan: planned().length, log: done().length, cover: all.length };
+    $$('#visitTabs [data-visit-tab]').forEach(function (b) {
+      var c = b.querySelector('.count');
+      if (c) c.textContent = counts[b.dataset.visitTab];
+    });
+  }
+
+  function dateBlock(iso) {
+    var x = d(iso);
+    return '<div class="mt-date">' + (x ? '<b>' + x.getDate() + '</b><span>' + MONTHS[x.getMonth()] + '</span>' : '<b>–</b>') + '</div>';
+  }
+  function who(v) {
+    return '<span class="vs-who ' + (v.role === 'TL' ? 'tl' : v.role === 'Admin' ? 'admin' : '') + '">' + esc(v.role) + ' · ' + esc(v.visitor) + '</span>';
+  }
+  function actions(v, log) {
+    if (!v.canEdit) return '<span class="vs-ro" title="Hanya yang membuat visit ini yang bisa mengubahnya">' + IC.lock + 'Hanya lihat</span>';
+    return '<div class="mt-actions">' +
+      (log ? '' : '<button type="button" class="btn sm primary" data-visit-log="' + esc(v.id) + '">' + IC.note + 'Isi log</button>') +
+      '<button type="button" class="icon-sm" title="Ubah" data-visit-edit="' + esc(v.id) + '">' + IC.edit + '</button>' +
+      '<button type="button" class="icon-sm danger" title="Hapus" data-visit-del="' + esc(v.id) + '">' + IC.trash + '</button></div>';
+  }
+  function cgLine(v) {
+    return '<span class="cg-code">' + esc(v.cg) + '</span>' +
+      '<span class="vs-cgl">' + (v.cgl ? 'CGL ' + esc(v.cgl) : 'Tanpa CGL') + (A.seesMany() ? ' · Coach ' + esc(v.coach) : '') + '</span>';
+  }
+  function empty(title, body) {
+    return '<div class="mt-empty">' + IC.house + '<b>' + esc(title) + '</b>' + (body || '') + '</div>';
+  }
+
+  function planHtml() {
+    var list = planned().filter(matches).sort(function (a, b) { return a.date.localeCompare(b.date); });
+    if (!list.length) return empty('Belum ada visit terjadwal', 'Klik <b>Jadwalkan visit</b> untuk merencanakan kunjungan ke CG.');
+    var late = list.filter(function (v) { return v.date < today(); });
+    var next = list.filter(function (v) { return v.date >= today(); });
+    var card = function (v, i) {
+      var over = v.date < today();
+      return '<article class="mt-card vs-card' + (over ? ' st-overdue' : '') + '" style="animation-delay:' + Math.min(i, 8) * 35 + 'ms">' + dateBlock(v.date) +
+        '<div class="mt-main"><div class="mt-top">' + cgLine(v) + actions(v) + '</div>' +
+        '<div class="vs-meta"><span class="due' + (over ? ' overdue' : daysBetween(today(), v.date) <= 3 ? ' soon' : '') + '">' + IC.cal + esc(until(v.date)) + '</span>' +
+        (v.time ? '<span class="due">' + IC.clock + esc(v.time) + '</span>' : '') + who(v) + '</div>' +
+        (v.plan ? '<p class="mt-purpose">' + esc(v.plan) + '</p>' : '') +
+        (over && v.canEdit ? '<div class="vs-hint">Visitnya sudah lewat. Isi log-nya, atau ubah tanggalnya kalau diundur.</div>' : '') +
+        '</div></article>';
+    };
+    return (late.length ? '<div class="mt-month is-warn">Belum diisi log</div>' + late.map(card).join('') : '') +
+      (next.length ? '<div class="mt-month">Akan datang</div>' + next.map(card).join('') : '');
+  }
+
+  function logHtml() {
+    var list = done().filter(matches);
+    if (!list.length) return empty('Belum ada log visit', 'Setelah visit, klik <b>Isi log</b> di jadwalnya atau <b>Catat visit</b>.');
+    var lastMonth = '';
+    return list.map(function (v, i) {
+      var m = v.visitDate.slice(0, 7), x = d(v.visitDate);
+      var head = m !== lastMonth && x ? '<div class="mt-month">' + MONTHS_LONG[x.getMonth()] + ' ' + x.getFullYear() + '</div>' : '';
+      lastMonth = m;
+      return head + '<article class="mt-card vs-card st-done" style="animation-delay:' + Math.min(i, 8) * 35 + 'ms">' + dateBlock(v.visitDate) +
+        '<div class="mt-main"><div class="mt-top">' + cgLine(v) + actions(v, true) + '</div>' +
+        '<div class="vs-meta">' + who(v) + (v.attendance != null ? '<span class="due">' + IC.users + v.attendance + ' hadir</span>' : '') +
+        (v.date && v.date !== v.visitDate ? '<span class="due">' + IC.cal + 'Rencana ' + esc(longDate(v.date)) + '</span>' : '') + '</div>' +
+        '<div class="vs-block"><div class="vs-label">Evaluasi</div><p>' + esc(v.evaluation) + '</p></div>' +
+        (v.actions ? '<div class="vs-block action"><div class="vs-label">' + IC.flag + 'Action untuk ' + esc(v.cgl ? 'CGL ' + v.cgl : 'CGL') + '</div><p>' + esc(v.actions) + '</p></div>' : '') +
+        '</div></article>';
+    }).join('');
+  }
+
+  function coverHtml() {
+    var q = V.q.toLowerCase().trim();
+    var list = cgs().filter(function (c) {
+      return (!V.coach || c.coach === V.coach) && (!q || [c.code, c.cgl, c.coach, c.area].join(' ').toLowerCase().indexOf(q) >= 0);
+    }).map(function (c) { return { c: c, last: lastVisit(c.code), next: nextVisit(c.code) }; });
+    list.sort(function (a, b) {
+      var da = a.last ? a.last.visitDate : '', db = b.last ? b.last.visitDate : '';
+      return da.localeCompare(db) || a.c.code.localeCompare(b.c.code, 'id', { numeric: true });
+    });
+    if (!list.length) return empty('Tidak ada CG', '');
+    return list.map(function (x, i) {
+      var days = x.last ? daysBetween(x.last.visitDate, today()) : null;
+      var tone = days == null ? 'never' : days > STALE_DAYS ? 'stale' : 'fresh';
+      return '<div class="vs-cg ' + tone + '" style="animation-delay:' + Math.min(i, 12) * 25 + 'ms">' +
+        '<div class="vs-cg-top"><button type="button" class="cg-code" data-cg-open="' + esc(x.c.code) + '">' + esc(x.c.code) + '</button>' +
+        '<span class="pr-main"><span class="pr-name">' + esc(x.c.cgl ? 'CGL ' + x.c.cgl : 'Tanpa CGL') + '</span>' +
+        '<span class="pr-sub">' + esc(['Coach ' + x.c.coach, x.c.time, x.c.size + ' orang'].filter(Boolean).join(' · ')) + '</span></span></div>' +
+        '<div class="vs-cg-rows"><div><span>Visit terakhir</span><b>' + (x.last ? esc(ago(x.last.visitDate)) : 'Belum pernah') + '</b>' +
+        (x.last ? '<small>' + esc(x.last.role + ' · ' + x.last.visitor) + '</small>' : '') + '</div>' +
+        '<div><span>Berikutnya</span><b>' + (x.next ? esc(longDate(x.next.date)) : '–') + '</b>' + (x.next ? '<small>' + esc(x.next.visitor) + '</small>' : '') + '</div></div>' +
+        '<div class="vs-cg-act"><button type="button" class="btn sm" data-visit-plan="' + esc(x.c.code) + '">' + IC.cal + 'Jadwalkan</button>' +
+        '<button type="button" class="btn sm" data-visit-new-log="' + esc(x.c.code) + '">' + IC.note + 'Catat visit</button></div></div>';
+    }).join('');
+  }
+
+  // ───────────── forms ─────────────
+  function byId(id) { return (V.visits || []).filter(function (v) { return v.id === id; })[0]; }
+
+  /** mode 'plan' (schedule) or 'log'. src = existing visit (edit / fill log) or null. */
+  function openForm(mode, src, cg) {
+    var all = cgs();
+    if (!src && !all.length) { A.toast('Belum ada CG yang bisa divisit.'); return; }
+    var isLog = mode === 'log';
+    V.f = {
+      mode: mode, id: src ? src.id : '', fixedCg: !!(src && isLog),
+      cg: src ? src.cg : (cg || (V.coach ? (all.filter(function (c) { return c.coach === V.coach; })[0] || all[0]).code : all[0].code)),
+      date: src ? (isLog ? (src.visitDate || (src.date <= today() ? src.date : today())) : src.date) : today(),
+      time: src ? src.time : '', plan: src ? src.plan : '',
+      attendance: src && src.attendance != null ? String(src.attendance) : '',
+      evaluation: src ? src.evaluation : '', actions: src ? src.actions : '',
+      saving: false, err: '', editing: !!(src && (isLog ? src.status === 'Selesai' : true)),
+    };
+    renderForm();
+    $('#visitModalWrap').classList.add('open');
+    $('#visitModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+    setTimeout(function () { var el = $(isLog && src ? '#vsEval' : '#vsCg') || $('#vsDate'); if (el) el.focus(); }, 300);
+  }
+
+  function closeForm() {
+    if (!V.f || V.f.saving) return;
+    V.f = null;
+    $('#visitModalWrap').classList.remove('open');
+    $('#visitModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  function cgSelect(f) {
+    var all = cgs();
+    if (f.fixedCg || (f.id && f.mode === 'log')) {
+      return '<div class="field"><label>CG</label><input value="' + esc(f.cg) + '" disabled></div>';
+    }
+    var groups = {};
+    all.forEach(function (c) { (groups[c.coach] = groups[c.coach] || []).push(c); });
+    return '<div class="field"><label for="vsCg">CG</label><select id="vsCg" class="mul-select">' +
+      Object.keys(groups).map(function (k) {
+        return '<optgroup label="Coach ' + esc(k) + '">' + groups[k].map(function (c) {
+          return '<option value="' + esc(c.code) + '"' + (c.code === f.cg ? ' selected' : '') + '>' + esc(c.code + (c.cgl ? ' · CGL ' + c.cgl : '')) + '</option>';
+        }).join('') + '</optgroup>';
+      }).join('') + '</select></div>';
+  }
+
+  function renderForm() {
+    var f = V.f, isLog = f.mode === 'log';
+    var cg = cgs().filter(function (c) { return c.code === f.cg; })[0];
+    var src = f.id ? byId(f.id) : null;
+    var cglName = (cg && cg.cgl) || (src && src.cgl) || '';
+    var title = isLog ? (f.editing ? 'Ubah log visit' : 'Log visit') : (f.id ? 'Ubah jadwal visit' : 'Jadwalkan visit');
+    var sub = isLog ? (src && src.status !== 'Selesai' ? 'Rencana ' + longDate(src.date) + (src.time ? ', ' + src.time : '') : 'Bagaimana visitnya?')
+      : 'Rencana kunjungan ke CG';
+    var body = isLog
+      ? '<div class="form-grid">' + cgSelect(f) +
+        '<div class="field"><label for="vsDate">Tanggal visit</label><input id="vsDate" type="date" max="' + today() + '" value="' + esc(f.date) + '"></div>' +
+        '<div class="field"><label for="vsAtt">Jumlah hadir <span class="opt">opsional</span></label><input id="vsAtt" type="number" min="0" max="999" inputmode="numeric" value="' + esc(f.attendance) + '" placeholder="mis. 9"></div>' +
+        '<div class="field"><label>CGL</label><input value="' + esc(cglName || 'Belum ada CGL') + '" disabled></div>' +
+        '<div class="field wide"><label for="vsEval">Evaluasi</label><textarea id="vsEval" rows="4" maxlength="3000" placeholder="Suasana CG, sharing, kehadiran, hal yang perlu diperhatikan…">' + esc(f.evaluation) + '</textarea></div>' +
+        '<div class="field wide"><label for="vsActions">Action / tugas untuk ' + esc(cglName ? 'CGL ' + cglName : 'CGL') + ' <span class="opt">opsional</span></label>' +
+        '<textarea id="vsActions" rows="3" maxlength="2000" placeholder="mis. Follow up 2 member baru, siapkan sponsor untuk…">' + esc(f.actions) + '</textarea></div>' +
+        '</div>'
+      : '<div class="form-grid">' + cgSelect(f) +
+        '<div class="field"><label>CGL</label><input value="' + esc(cglName || 'Belum ada CGL') + '" disabled></div>' +
+        '<div class="field"><label for="vsDate">Tanggal</label><input id="vsDate" type="date" value="' + esc(f.date) + '">' +
+        (f.date && f.date < today() ? '<div class="hint">Tanggal sudah lewat. Kalau visitnya sudah terjadi, pakai "Catat visit".</div>' : '') + '</div>' +
+        '<div class="field"><label for="vsTime">Jam <span class="opt">opsional</span></label><input id="vsTime" maxlength="40" value="' + esc(f.time) + '" placeholder="' + esc((cg && cg.time) || 'mis. 19.00') + '"></div>' +
+        '<div class="field wide"><label for="vsPlan">Rencana / fokus visit <span class="opt">opsional</span></label>' +
+        '<textarea id="vsPlan" rows="3" maxlength="1000" placeholder="mis. Kenalan dengan member baru, lihat dinamika sharing…">' + esc(f.plan) + '</textarea></div>' +
+        '</div>';
+    var ok = isLog ? (f.date && f.date <= today() && f.evaluation.trim().length >= 3) : !!f.date;
+    $('#visitModal').innerHTML =
+      '<div class="m-head"><div class="m-head-row"><div class="avatar lg vs-avatar">' + (isLog ? IC.note : IC.cal) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div><div class="m-sub">' + esc(sub) + '</div></div>' +
+      '<button class="close-btn dark" data-visit-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body mt-form">' + body + '</div>' +
+      '<div class="m-footer"><span class="ldp-err" id="vsErr">' + esc(f.err) + '</span><button type="button" class="btn" data-visit-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="vsSave"' + (ok ? '' : ' disabled') + '><span class="spin"></span>' + IC.check +
+      '<span id="vsSaveLabel">' + (isLog ? 'Simpan log' : 'Simpan jadwal') + '</span></button></div>';
+  }
+
+  function updateSave() {
+    var f = V.f, b = $('#vsSave');
+    if (!f || !b) return;
+    b.disabled = f.saving || (f.mode === 'log' ? !(f.date && f.date <= today() && f.evaluation.trim().length >= 3) : !f.date);
+  }
+
+  function save() {
+    var f = V.f;
+    if (!f || f.saving) return;
+    var isLog = f.mode === 'log';
+    var body = isLog
+      ? { id: f.id, cg: f.cg, date: f.date, attendance: f.attendance, evaluation: f.evaluation, actions: f.actions }
+      : { id: f.id, cg: f.cg, date: f.date, time: f.time, plan: f.plan };
+    f.saving = true;
+    $('#vsSave').disabled = true;
+    $('#vsSave').classList.add('loading');
+    $('#vsSaveLabel').textContent = 'Menyimpan…';
+    A.api(isLog ? 'logVisit' : 'scheduleVisit', body).then(function (res) {
+      f.saving = false;
+      closeForm();
+      if (isLog) V.tab = 'log'; else if (V.tab === 'log') V.tab = 'plan';
+      apply(res);
+      A.toast(isLog ? 'Log visit ' + f.cg + ' tersimpan ✨' : 'Visit ' + f.cg + ' dijadwalkan · ' + longDate(f.date));
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      f.err = A.errText(err);
+      renderForm();
+    });
+  }
+
+  function remove(id) {
+    var v = byId(id);
+    if (!v) return;
+    if (!window.confirm('Hapus ' + (v.status === 'Selesai' ? 'log' : 'jadwal') + ' visit ' + v.cg + ' (' + longDate(v.visitDate || v.date) + ')?')) return;
+    A.api('deleteVisit', id).then(function (res) { apply(res); A.toast('Visit dihapus'); }, function (err) {
+      if (!err.isAuth) A.toast(A.errText(err));
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if (t.closest('#planVisitBtn')) return openForm('plan', null);
+    if (t.closest('#logVisitBtn')) return openForm('log', null);
+    if ((el = t.closest('[data-visit-tab]'))) { V.tab = el.dataset.visitTab; return render(); }
+    if ((el = t.closest('[data-visit-plan]'))) return openForm('plan', null, el.dataset.visitPlan);
+    if ((el = t.closest('[data-visit-new-log]'))) return openForm('log', null, el.dataset.visitNewLog);
+    if ((el = t.closest('[data-visit-log]'))) return openForm('log', byId(el.dataset.visitLog));
+    if ((el = t.closest('[data-visit-edit]'))) { var v = byId(el.dataset.visitEdit); return v && openForm(v.status === 'Selesai' ? 'log' : 'plan', v); }
+    if ((el = t.closest('[data-visit-del]'))) return remove(el.dataset.visitDel);
+    if (!V.f) return;
+    if (t.closest('[data-visit-close]')) return closeForm();
+    if (t.closest('#vsSave')) return save();
+  });
+
+  document.addEventListener('input', function (e) {
+    var id = e.target.id, f = V.f;
+    if (id === 'visitSearch') { V.q = e.target.value; return render(); }
+    if (!f) return;
+    var map = { vsTime: 'time', vsPlan: 'plan', vsAtt: 'attendance', vsEval: 'evaluation', vsActions: 'actions' };
+    if (map[id]) { f[map[id]] = e.target.value; updateSave(); }
+  });
+
+  document.addEventListener('change', function (e) {
+    var id = e.target.id, f = V.f;
+    if (id === 'visitCoach') { V.coach = e.target.value; return render(); }
+    if (!f) return;
+    if (id === 'vsCg' || id === 'vsDate') {
+      f[id === 'vsCg' ? 'cg' : 'date'] = e.target.value;
+      renderForm();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (V.f && e.key === 'Escape') { e.stopPropagation(); closeForm(); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.visits = function () { render(); load(); };
+  window.AOGVisits = {
+    plan: function (code) { openForm('plan', null, code); if (!V.visits) load(); },
+    onDashboard: function () { if (!V.visits) load(); },
+    onData: function () { var v = $('#visitView'); if (v && !v.hidden) render(); },
+    reset: function () {
+      V.visits = null; V.q = ''; V.coach = ''; V.tab = 'plan';
+      if (V.f) V.f.saving = false;
+      V.f = null;
+      var w = $('#visitModalWrap');
+      if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+      var s = $('#visitSearch'); if (s) s.value = '';
+      var b = $('#visitBadge'); if (b) b.hidden = true;
+    },
+  };
+})();
+</script>

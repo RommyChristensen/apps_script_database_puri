@@ -26,7 +26,7 @@
 
   function user() { return (A.state.data && A.state.data.user) || {}; }
   function sameCoach(a, b) { return String(a || '').toLowerCase() === String(b || '').toLowerCase(); }
-  function canUse(coach) { var u = user(); return !!(u.isAdmin || sameCoach(u.coach, coach)); }
+  function canUse(coach) { return A.canCoach(coach); }
 
   /** "aog 5" → "AOG 05" (same rule as normalizeCgCode_ in Multiply.gs). */
   function normCode(v) {
@@ -134,7 +134,7 @@
     if (!src) { A.toast('Belum ada CG yang bisa dimultiplikasi.'); return; }
     var info = function (k) { return A.cgInfo(src.list, k); };
     M.f = {
-      source: src.code, code: suggestCode(src.code), coach: u.isAdmin ? src.coach : (canUse(src.coach) ? src.coach : u.coach),
+      source: src.code, code: suggestCode(src.code), coach: canUse(src.coach) ? src.coach : coaches()[0],
       date: A.toIso(new Date()), leader: null, members: {}, leaderQ: '', listOpen: false,
       time: '', mode: info('cgStatus') || 'Onsite', area: info('cgArea'), place: '', where: '', saving: false, err: '',
     };
@@ -156,7 +156,7 @@
   function coaches() {
     var u = user();
     var keys = (A.state.coaches || []).map(function (c) { return c.key; });
-    return u.isAdmin ? keys : keys.filter(function (k) { return sameCoach(k, u.coach); });
+    return keys.filter(function (k) { return A.canCoach(k); });
   }
 
   /** Problems that block saving (shown under the fields). */
@@ -365,7 +365,7 @@
       var src = sourceCg();
       if (!f.codeTouched) f.code = suggestCode(f.source);
       f.mode = A.cgInfo(src.list, 'cgStatus') || f.mode; f.area = A.cgInfo(src.list, 'cgArea') || f.area;
-      if (user().isAdmin) f.coach = src.coach;
+      if (canUse(src.coach)) f.coach = src.coach;
       return rerender();
     }
     if (t.id === 'mulCode') f.codeTouched = true;

@@ -84,6 +84,8 @@ function multiplyCg(token, req) {
 
     // Write: move everyone, then promote the leader.
     const fields = { cg: newCg, cgl: leader.name, coach: coach };
+    const tl = tlOfCoach_(db.people, coach);
+    if (tl) fields.tl = tl;
     CG_INFO_FIELDS.forEach(function (k) { fields[k] = info[k]; });
     everyone.forEach(function (p) { setRowFields_(db, p.id, fields); });
 

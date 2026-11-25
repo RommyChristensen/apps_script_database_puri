@@ -61,6 +61,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `RestructureUi.html` | Pindah CG and Hapus forms |
 | `Multiply.gs` | Multiplikasi: new CG, leader promoted to CGL, history in the "Multiplikasi CG" tab |
 | `MultiplyUi.html` | Multiplikasi menu (history) and the new-CG form |
+| `Visits.gs` | Visit CG: schedules and visit logs in the "Visit CG" tab |
+| `VisitsUi.html` | Visit CG menu (Jadwal, Log, Cakupan) and forms |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -73,8 +75,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure` and `Multiply`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi` and `MultiplyUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply` and `Visits`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi` and `VisitsUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -87,9 +89,12 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | --- | --- | --- | --- | --- |
 | rommy | *(type one)* | | ADMIN | sees every coach |
 | angie | *(type one)* | Angie | COACH | sees only COACH = Angie |
+| rommytl | *(type one)* | Rommy Christensen | TL | sees every coach whose rows have TL = Rommy Christensen |
 
 - **COACH** must match the value in the database's COACH column (capitals don't matter).
-- **ROLE**: `COACH` (default), `ADMIN` (sees everyone and gets the spreadsheet links), or `NONAKTIF` (blocked).
+- **ROLE**: `COACH` (default), `TL` (Team Leader: put the TL's name in COACH, exactly as in the database's
+  **TL** column; sees and edits every coach under them), `ADMIN` (sees everyone and gets the spreadsheet links),
+  or `NONAKTIF` (blocked). A TL's list of coaches is refreshed every 5 minutes.
 - **Passwords**: type them in plain text. After the person's first successful login the app replaces the
   password with a salted hash (`sha256$…`), so the tab never keeps readable passwords. To **reset** a
   password, type a new one over the hash. An empty password means the account can't sign in.
@@ -131,6 +136,20 @@ npm i -g @google/clasp && clasp login
 clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboard"
 clasp push && clasp deploy
 ```
+
+## TL column and the Visit CG tab
+
+- The database has a **TL** column (right after COACH) with the Team Leader of each row. The TL of a coach is
+  the most common value among that coach's rows. Pindah CG and Multiplikasi to another coach also update TL.
+- **Visit CG** menu: coaches visit their own CGs, a TL every CG of their coaches, admin every CG.
+  - **Jadwalkan visit**: CG, date, time, focus of the visit (status `Terjadwal`).
+  - **Isi log** on a schedule (or **Catat visit** for an unplanned one): visit date (not in the future),
+    attendance, evaluation and the action for that CG's CGL (status `Selesai`).
+  - **Cakupan CG** lists every CG with its last and next visit; CGs not visited for 3 months stand out.
+  - Everyone sees all visits to CGs they can access (a coach also sees the TL's visits), but only the author
+    or an admin can change or delete a visit.
+- Stored in the **Visit CG** tab (created automatically): ID, CG, COACH, CGL, TANGGAL, JAM, PENGUNJUNG, PERAN,
+  RENCANA, STATUS, TGL VISIT, HADIR, EVALUASI, ACTION CGL, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI.
 
 ## Multiplikasi CG tab
 

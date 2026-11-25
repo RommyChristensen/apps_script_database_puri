@@ -89,6 +89,10 @@ function main() {
   });
   const accounts = [['USERNAME', 'PASSWORD', 'COACH', 'ROLE'], ['admin', 'admin123', '', 'ADMIN']]
     .concat([...coachNames].map((c) => [c.toLowerCase(), c.toLowerCase() + '123', c, 'COACH']));
+  // One TL login per name in a TL column: first name, e.g. rommy/rommy123.
+  const tlCol = values[3] ? values[3].indexOf('TL') : -1;
+  const tlNames = new Set(tlCol < 0 ? [] : values.slice(5).map((r) => (r[tlCol] || '').trim()).filter(Boolean));
+  tlNames.forEach((t) => { const u = t.split(/\s+/)[0].toLowerCase(); accounts.push([u, u + '123', t, 'TL']); });
 
   // The page runs the REAL Code.gs in the browser against an in-memory mock of
   // SpreadsheetApp, and google.script.run is stubbed to call it with a delay.
@@ -111,13 +115,15 @@ function main() {
     ${read('Locations.gs')}
     ${read('Restructure.gs')}
     ${read('Multiply.gs')}
+    ${read('Visits.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
       getLdpProgress: getLdpProgress, saveLdp: saveLdp,
       getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation,
       updateCgInfo: updateCgInfo, movePerson: movePerson, deletePerson: deletePerson,
-      multiplyCg: multiplyCg, getMultiplications: getMultiplications };
+      multiplyCg: multiplyCg, getMultiplications: getMultiplications,
+      getVisits: getVisits, scheduleVisit: scheduleVisit, logVisit: logVisit, deleteVisit: deleteVisit };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

@@ -55,25 +55,30 @@
       </div>
 
       <nav class="main-nav" id="mainNav" aria-label="Menu">
-        <button class="nav-item active" data-view="dashboard" aria-current="page">
+        <button class="nav-item active" data-view="dashboard" title="Dashboard" aria-current="page">
           <svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/></svg>
           <span>Dashboard</span>
         </button>
-        <button class="nav-item" data-view="meetings">
+        <button class="nav-item" data-view="meetings" title="Pertemuan">
           <svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h3M8 17h6"/></svg>
           <span>Pertemuan</span>
           <span class="nav-badge" id="navBadge" hidden></span>
         </button>
-        <button class="nav-item" data-view="ldp">
+        <button class="nav-item" data-view="ldp" title="LDP">
           <svg class="i" viewBox="0 0 24 24"><path d="M4 20h4v-6H4zM10 20h4V9h-4zM16 20h4V4h-4z"/></svg>
           <span>LDP</span>
           <span class="nav-badge" id="ldpBadge" hidden></span>
         </button>
-        <button class="nav-item" data-view="multiply">
+        <button class="nav-item" data-view="visits" title="Visit CG">
+          <svg class="i" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>
+          <span>Visit CG</span>
+          <span class="nav-badge" id="visitBadge" hidden></span>
+        </button>
+        <button class="nav-item" data-view="multiply" title="Multiplikasi">
           <svg class="i" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-7 8-7 0 5-3 7-8 7zM12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 5.5 7 5.5z"/></svg>
           <span>Multiplikasi</span>
         </button>
-        <button class="nav-item" data-view="locations">
+        <button class="nav-item" data-view="locations" title="Lokasi">
           <svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
           <span>Lokasi</span>
         </button>
@@ -238,6 +243,41 @@
       </div>
     </main>
 
+    <!-- Visit CG -->
+    <main id="visitView" class="meetings-view visit-view" data-view="visits" hidden>
+      <section class="mt-head">
+        <div>
+          <div class="eyebrow-soft">Menu · Visit CG</div>
+          <h1 class="page-title">Visit CG</h1>
+          <p class="muted page-sub">Jadwalkan kunjungan ke CG, lalu catat evaluasi dan action untuk CGL-nya.</p>
+        </div>
+        <div class="vs-head-btns">
+          <button class="btn" id="logVisitBtn">
+            <svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h5"/></svg>Catat visit
+          </button>
+          <button class="btn primary" id="planVisitBtn">
+            <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Jadwalkan visit
+          </button>
+        </div>
+      </section>
+      <div class="mt-stats" id="visitStats"></div>
+      <div class="mt-filters panel">
+        <div class="chips" id="visitTabs">
+          <button class="chip active" data-visit-tab="plan">Jadwal<span class="count"></span></button>
+          <button class="chip" data-visit-tab="log">Log visit<span class="count"></span></button>
+          <button class="chip" data-visit-tab="cover">Cakupan CG<span class="count"></span></button>
+        </div>
+        <div class="mt-filter-row">
+          <div class="mt-search">
+            <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="visitSearch" type="search" placeholder="Cari CG, CGL, evaluasi…" autocomplete="off">
+          </div>
+          <select id="visitCoach" aria-label="Coach" hidden></select>
+        </div>
+      </div>
+      <div id="visitList" class="mt-list"></div>
+    </main>
+
     <!-- Multiplikasi -->
     <main id="mulView" class="meetings-view mul-view" data-view="multiply" hidden>
       <section class="mt-head">
@@ -304,6 +344,12 @@
       <div class="modal mt-modal" role="dialog" aria-modal="true" id="locModal"></div>
     </div>
 
+    <!-- Visit form -->
+    <div class="modal-wrap mt-wrap" id="visitModalWrap" aria-hidden="true">
+      <div class="modal-scrim" data-visit-close></div>
+      <div class="modal mt-modal" role="dialog" aria-modal="true" id="visitModal"></div>
+    </div>
+
     <!-- Multiplikasi form -->
     <div class="modal-wrap mt-wrap" id="mulModalWrap" aria-hidden="true">
       <div class="modal-scrim" data-mul-close></div>
@@ -319,5 +365,6 @@
     <?!= include('CgUi'); ?>
     <?!= include('RestructureUi'); ?>
     <?!= include('MultiplyUi'); ?>
+    <?!= include('VisitsUi'); ?>
   </body>
 </html>

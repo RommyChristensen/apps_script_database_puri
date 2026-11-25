@@ -172,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -216,9 +216,11 @@
     renderGaps();
     if (window.AOGCg) window.AOGCg.onData();
     if (window.AOGMultiply) window.AOGMultiply.onData();
+    if (window.AOGVisits) window.AOGVisits.onData();
     if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
     if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
     if (!quiet && window.AOGLocations) window.AOGLocations.onDashboard();
+    if (!quiet && window.AOGVisits) window.AOGVisits.onDashboard();
     var when = new Date(data.generatedAt);
     $('#foot').textContent = 'Sumber: tab "' + data.sheetName + '" · diperbarui ' +
       when.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
@@ -283,7 +285,8 @@
     var serving = members.filter(function (p) { return !!p.ministry; }).length;
 
     var u = state.data.user || {};
-    $('#heroEyebrow').textContent = u.isAdmin ? 'Live · ' + state.coaches.length + ' coach' : 'Live · Coach ' + (u.coach || '');
+    $('#heroEyebrow').textContent = u.isAdmin ? 'Live · ' + state.coaches.length + ' coach'
+      : u.isTl ? 'Live · TL ' + (u.coach || '') + ' · ' + state.coaches.length + ' coach' : 'Live · Coach ' + (u.coach || '');
     var tl = state.data.teamLeaders || [];
     $('#heroSub').textContent = (tl.length ? 'Team Leader: ' + tl.join(', ') + '. ' : '') +
       'Ringkasan jemaat per coach, CG, dan perjalanan bertumbuh.';
@@ -952,10 +955,21 @@
     items[state.search.active].scrollIntoView({ block: 'nearest' });
   }
 
+  /** True when the signed-in user may work with this coach's people (admin: all; TL: their coaches). */
+  function canCoach(coach) {
+    var u = (state.data && state.data.user) || {};
+    var k = String(coach || '').toLowerCase();
+    if (u.isAdmin) return true;
+    if (u.isTl) return (u.coaches || []).some(function (c) { return String(c).toLowerCase() === k; });
+    return !!k && String(u.coach || '').toLowerCase() === k;
+  }
+  /** Admin or TL: sees more than one coach, so lists show coach names and coach filters. */
+  function seesMany() { var u = (state.data && state.data.user) || {}; return !!(u.isAdmin || u.isTl); }
+
   // ───────────── Login ─────────────
   function renderUser(user) {
     user = user || {};
-    var label = user.isAdmin ? user.username + ' · Admin' : 'Coach ' + (user.coach || user.username);
+    var label = user.isAdmin ? user.username + ' · Admin' : user.isTl ? 'TL ' + (user.coach || user.username) : 'Coach ' + (user.coach || user.username);
     $('#userName').textContent = label;
     $('#userAvatar').textContent = initials(user.coach || user.username);
     $('#userChip').title = 'Masuk sebagai ' + user.username;
@@ -996,6 +1010,7 @@
     if (window.AOGCg) window.AOGCg.reset();
     if (window.AOGRestructure) window.AOGRestructure.reset();
     if (window.AOGMultiply) window.AOGMultiply.reset();
+    if (window.AOGVisits) window.AOGVisits.reset();
     showLogin(message);
   }
 
@@ -1112,7 +1127,7 @@
     $: $, $$: $$, esc: esc, initials: initials, api: api, state: state, toast: toast, ICON: ICON,
     posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson, posBadge: posBadge,
     openCoach: openCoach, closeDrawer: closeDrawer, personRow: personRow, msPct: msPct, cgInfo: cgInfo,
-    POSITIONS: POSITIONS, isActive: isActive,
+    POSITIONS: POSITIONS, isActive: isActive, canCoach: canCoach, seesMany: seesMany,
     parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
     /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */
     applyData: function (data) { onData(data, false, true); },

@@ -156,8 +156,8 @@
       return '<option' + (M.filter.category === c ? ' selected' : '') + '>' + esc(c) + '</option>';
     }).join('');
     var coach = $('#mtCoach');
-    coach.hidden = !isAdmin();
-    if (isAdmin()) {
+    coach.hidden = !A.seesMany();
+    if (A.seesMany()) {
       coach.innerHTML = '<option value="">Semua coach</option>' + (A.state.coaches || []).map(function (c) {
         return '<option value="' + esc(c.key) + '"' + (M.filter.coach === c.key ? ' selected' : '') + '>Coach ' + esc(c.name) + '</option>';
       }).join('');
@@ -228,7 +228,7 @@
       '<div class="mt-date"><b>' + (d ? d.getDate() : '?') + '</b><span>' + esc(fmt(m.date, { month: 'short' })) + '</span></div>' +
       '<div class="mt-main">' +
       '<div class="mt-top"><span class="mt-cat">' + esc(m.category) + '</span>' +
-      (isAdmin() ? '<span class="badge line">' + (m.coach ? 'Coach ' + esc(m.coach) : 'Team Leader') + '</span>' : '') +
+      (A.seesMany() ? '<span class="badge line">' + (m.coach ? 'Coach ' + esc(m.coach) : 'Team Leader') + '</span>' : '') +
       (m.aboutLeader ? '<span class="badge line">Dengan coach / TL</span>' : '') +
       (m.readOnly
         ? '<div class="mt-actions"><span class="badge line" title="Dicatat oleh admin">Hanya lihat</span></div></div>'
@@ -345,7 +345,7 @@
       '<div class="m-body mt-form">' +
       '<div class="form-grid">' +
       '<div class="field" data-err="date"><label for="mtDate">Tanggal</label><input id="mtDate" type="date" value="' + esc(f.date) + '" max="' + today() + '"><div class="err"></div></div>' +
-      '<div class="field"><label>Coach</label><input value="' + esc(formCoach() ? 'Coach ' + formCoach() : (isAdmin() ? 'Mengikuti orang yang dipilih' : 'Coach ' + (A.state.data.user.coach || ''))) + '" disabled></div>' +
+      '<div class="field"><label>Coach</label><input value="' + esc(formCoach() ? 'Coach ' + formCoach() : (A.seesMany() ? 'Mengikuti orang yang dipilih' : 'Coach ' + (A.state.data.user.coach || ''))) + '" disabled></div>' +
       '</div>' +
       '<div class="field wide" data-err="people"><label for="mtPick">Dengan siapa</label>' +
       '<div class="picker"><div class="pick-chips">' + chips +
@@ -392,7 +392,7 @@
       var info = A.posInfo(p.position);
       return '<button type="button" class="pick-item" data-pick="' + esc(p.name) + '"><span class="dot" style="background:' + info.color + '">' +
         esc(A.initials(p.name)) + '</span><span class="pr-main"><span class="pr-name">' + esc(p.name) + '</span><span class="pr-sub">' +
-        esc([p.cg, p.position, isAdmin() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span></button>';
+        esc([p.cg, p.position, A.seesMany() ? 'Coach ' + p.coach : ''].filter(Boolean).join(' · ')) + '</span></span></button>';
     }).join('') || '<div class="sr-empty">Tidak ada yang cocok.</div>';
   }
 
