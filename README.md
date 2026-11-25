@@ -94,6 +94,12 @@ spreadsheet (File → Make a copy) copies the script with it and works on its ow
 own deployment (Deploy → New deployment) and its own accounts in the Authentication tab. Change
 `CONFIG.APP_TITLE` in `Code.gs` to the church's name.
 
+## Dark mode
+
+The app follows the device's light / dark setting. The sun / moon button in the top bar switches it by hand; the
+choice is remembered on that device. All colours live as tokens in the `:root` block of `Stylesheet.html`, with
+their dark values in the two dark blocks right after it.
+
 ## Logins (Authentication tab)
 
 | USERNAME | PASSWORD | COACH | ROLE | CATATAN |

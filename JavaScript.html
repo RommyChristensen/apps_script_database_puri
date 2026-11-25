@@ -481,7 +481,7 @@
     if (!n) return '<td class="cell zero">0</td>';
     var r = of ? n / of : 0;
     var bg = 'rgba(37,99,235,' + (0.08 + r * 0.82).toFixed(2) + ')';
-    return '<td class="cell" title="' + n + ' dari ' + of + '" style="background:' + bg + ';color:' + (r > 0.45 ? '#fff' : '#1e3a8a') + '">' + n + '</td>';
+    return '<td class="cell" title="' + n + ' dari ' + of + '" style="background:' + bg + ';color:' + (r > 0.45 ? '#fff' : 'var(--heat-ink)') + '">' + n + '</td>';
   }
 
   // ───────────── Drawer ─────────────
@@ -1170,6 +1170,32 @@
     input.type = input.type === 'password' ? 'text' : 'password';
     input.focus();
   });
+
+  // ───────────── Theme ─────────────
+  /** Follows the device until the viewer picks; the choice is remembered on this device. */
+  function isDark() {
+    var t = document.documentElement.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function syncThemeBtn() {
+    var dark = isDark(), b = $('#themeBtn');
+    if (!b) return;
+    b.classList.toggle('is-dark', dark);
+    b.title = dark ? 'Mode terang' : 'Mode gelap';
+    b.setAttribute('aria-label', b.title);
+  }
+  $('#themeBtn').addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('aogpuri.theme', next); } catch (e) { /* ignore */ }
+    syncThemeBtn();
+  });
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', syncThemeBtn);
+  }
+  syncThemeBtn();
 
   $('#logoutBtn').addEventListener('click', function () {
     if (state.edit && !confirmDiscard()) return;
