@@ -8,11 +8,13 @@
  */
 
 const CONFIG = {
-  // Spreadsheet that holds the database. Leave blank to use the spreadsheet
-  // this script is bound to (Extensions → Apps Script).
-  SPREADSHEET_ID: '1VCzzxXv2qXvnoK5Fnrx5WxpD8owbIt0bnqzPdhsEZl0',
+  // Spreadsheet that holds the database. Leave blank (recommended) to use the
+  // spreadsheet this script is attached to (Extensions → Apps Script), so a
+  // copy of the spreadsheet automatically works on its own data.
+  SPREADSHEET_ID: '',
   // Tab to read. Leave blank to always read the FIRST tab.
   SHEET_NAME: '',
+  // Name shown in the browser tab and on the login screen. Change it per church.
   APP_TITLE: 'AOG Youth Puri',
   // Every edit made from the dashboard is appended to this tab (created
   // automatically as the LAST tab). Leave blank to disable the log.

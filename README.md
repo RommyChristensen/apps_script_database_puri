@@ -87,6 +87,13 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
    - *Who has access*: **Anyone**
 5. **Deploy**, authorize, and copy the `/exec` URL. That's the dashboard link for every coach.
 
+## Using the app for another church / TL (template)
+
+`CONFIG.SPREADSHEET_ID` is blank, so the script always works on the spreadsheet it is attached to. A copy of the
+spreadsheet (File → Make a copy) copies the script with it and works on its own data, but every copy needs its
+own deployment (Deploy → New deployment) and its own accounts in the Authentication tab. Change
+`CONFIG.APP_TITLE` in `Code.gs` to the church's name.
+
 ## Logins (Authentication tab)
 
 | USERNAME | PASSWORD | COACH | ROLE | CATATAN |
