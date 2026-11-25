@@ -144,7 +144,7 @@ clasp push && clasp deploy
 Every CG gets a colour, computed from the database (people with STATUS Non-Aktif don't count;
 "member" = POSISI MEMBER or SIMPATISAN):
 
-- **Unhealthy** (red): no CGL, no sponsor, or fewer than 2 members.
+- **At Risk** (red): no CGL, no sponsor, or fewer than 2 members.
 - **Healthy** (green): a CGL, at least 2 sponsors and at least 4 members. More than 11 members adds **Ready to Multiply**.
 - **Growing** (yellow): everything in between (e.g. 1 sponsor, or 2–3 members).
 

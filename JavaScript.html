@@ -166,13 +166,13 @@
   }
   // ───────────── CG health ─────────────
   var HEALTH = {
-    red: { label: 'Unhealthy', order: 0 },
+    red: { label: 'At Risk', order: 0 },
     yellow: { label: 'Growing', order: 1 },
     green: { label: 'Healthy', order: 2 },
   };
   /**
    * Health of one CG (people of that CG; Non-Aktif don't count):
-   *   Unhealthy (red)   — no CGL, no sponsor, or fewer than 2 members
+   *   At Risk (red)     — no CGL, no sponsor, or fewer than 2 members
    *   Healthy (green)   — CGL, at least 2 sponsors and 4+ members (more than 11 = "Ready to Multiply")
    *   Growing (yellow)  — everything in between
    * Members = POSISI MEMBER or SIMPATISAN.
@@ -219,7 +219,7 @@
     var scoped = all.filter(function (x) { return !coach || x.coach === coach; });
     var counts = { red: 0, yellow: 0, green: 0, multi: 0 };
     scoped.forEach(function (x) { counts[x.health.level]++; if (x.health.multi) counts.multi++; });
-    var chips = [['', 'Semua', scoped.length], ['red', 'Unhealthy', counts.red], ['yellow', 'Growing', counts.yellow],
+    var chips = [['', 'Semua', scoped.length], ['red', 'At Risk', counts.red], ['yellow', 'Growing', counts.yellow],
       ['green', 'Healthy', counts.green], ['multi', 'Ready to Multiply', counts.multi]];
     $('#healthChips').innerHTML = chips.map(function (c) {
       return '<button class="chip hl-chip ' + (c[0] || 'all') + (f === c[0] ? ' active' : '') + '" data-health="' + c[0] + '">' +
