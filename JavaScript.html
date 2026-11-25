@@ -49,7 +49,7 @@
   var state = {
     data: null, coaches: [], byId: {}, people: [],
     drawer: { coach: null, tab: 'cg', pos: 'ALL', status: 'ALL' },
-    health: { filter: '', coach: '' },
+    health: { filter: '', coach: '', sort: { key: 'status', dir: 1 } },
     search: { results: [], active: -1 },
     edit: null, // { id, draft: { milestones, position, ...fields }, saving }
     token: '',
@@ -234,23 +234,40 @@
     $('#healthBar').innerHTML = ['green', 'yellow', 'red'].map(function (k) {
       return counts[k] ? '<i class="' + k + '" style="width:' + (counts[k] / total * 100) + '%" title="' + HEALTH[k].label + ' ' + counts[k] + '"></i>' : '';
     }).join('');
+    var sort = state.health.sort;
+    var val = {
+      status: function (x) { return HEALTH[x.health.level].order * 2 + (x.health.multi ? 1 : 0); },
+      code: function (x) { return x.code; }, cgl: function (x) { return x.cgl || '~'; }, coach: function (x) { return x.coach; },
+      ncgl: function (x) { return x.health.cgl; }, sponsor: function (x) { return x.health.sponsor; }, member: function (x) { return x.health.member; },
+    };
     var list = scoped.filter(function (x) { return !f || (f === 'multi' ? x.health.multi : x.health.level === f); })
       .sort(function (a, b) {
-        return HEALTH[a.health.level].order - HEALTH[b.health.level].order || a.code.localeCompare(b.code, 'id', { numeric: true });
+        var va = val[sort.key](a), vb = val[sort.key](b);
+        var c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'id', { numeric: true });
+        return (sort.dir * c) || HEALTH[a.health.level].order - HEALTH[b.health.level].order || a.code.localeCompare(b.code, 'id', { numeric: true });
       });
-    box.innerHTML = list.map(function (x, i) {
-      var h = x.health;
-      return '<button class="hl-card ' + h.level + '" data-cg-open="' + esc(x.code) + '" style="animation-delay:' + Math.min(i, 16) * 25 + 'ms">' +
-        '<div class="hl-top"><span class="cg-code">' + esc(x.code) + '</span><span class="pr-main"><span class="pr-name">' +
-        esc(x.cgl ? 'CGL ' + x.cgl : 'Belum ada CGL') + '</span><span class="pr-sub">Coach ' + esc(x.coach) + '</span></span>' + healthBadge(h, false) + '</div>' +
-        '<div class="hl-nums"><span class="' + (h.cgl ? '' : 'bad') + '"><b>' + h.cgl + '</b>CGL</span>' +
-        '<span class="' + (h.sponsor >= 2 ? '' : h.sponsor ? 'meh' : 'bad') + '"><b>' + h.sponsor + '</b>Sponsor</span>' +
-        '<span class="' + (h.member > 11 ? 'up' : h.member >= 4 ? '' : h.member >= 2 ? 'meh' : 'bad') + '"><b>' + h.member + '</b>Member</span></div>' +
-        (h.reasons.length ? '<div class="hl-reasons">' + h.reasons.map(function (r) {
-          return '<span' + (h.multi ? ' class="up"' : '') + '>' + esc(r) + '</span>';
-        }).join('') + '</div>' : '<div class="hl-reasons"><span class="ok">Semua indikator terpenuhi</span></div>') +
-        '</button>';
-    }).join('') || '<div class="empty">Tidak ada CG untuk filter ini.</div>';
+    var th = function (key, label, cls) {
+      var on = sort.key === key;
+      return '<th class="' + (cls || '') + (on ? ' sorted' : '') + '"><button type="button" data-health-sort="' + key + '"' +
+        (on ? ' aria-sort="' + (sort.dir > 0 ? 'ascending' : 'descending') + '"' : '') + '>' + label +
+        '<span class="hl-arrow">' + (on ? (sort.dir > 0 ? '▲' : '▼') : '') + '</span></button></th>';
+    };
+    var tone = function (n, ok, meh) { return n >= ok ? '' : n >= meh ? ' meh' : ' bad'; };
+    box.innerHTML = list.length ? '<table class="hl-table"><thead><tr>' +
+      th('status', 'Status') + th('code', 'CG') + th('cgl', 'Nama CGL') + (state.coaches.length > 1 ? th('coach', 'Coach') : '') +
+      th('ncgl', 'CGL', 'num') + th('sponsor', 'Sponsor', 'num') + th('member', 'Member', 'num') + '<th>Catatan</th></tr></thead><tbody>' +
+      list.map(function (x) {
+        var h = x.health;
+        return '<tr class="' + h.level + '" data-cg-open="' + esc(x.code) + '" tabindex="0">' +
+          '<td>' + healthBadge(h) + '</td>' +
+          '<td class="hl-code">' + esc(x.code) + '</td>' +
+          '<td class="hl-name">' + (x.cgl ? esc(x.cgl) : '<span class="muted">Belum ada</span>') + '</td>' +
+          (state.coaches.length > 1 ? '<td>' + esc(x.coach) + '</td>' : '') +
+          '<td class="num' + tone(h.cgl, 1, 1) + '">' + h.cgl + '</td>' +
+          '<td class="num' + tone(h.sponsor, 2, 1) + '">' + h.sponsor + '</td>' +
+          '<td class="num' + (h.member > 11 ? ' up' : tone(h.member, 4, 2)) + '">' + h.member + '</td>' +
+          '<td class="hl-why">' + (h.reasons.length ? h.reasons.map(esc).join(' · ') : '<span class="ok">Semua indikator terpenuhi</span>') + '</td></tr>';
+      }).join('') + '</tbody></table>' : '<div class="empty">Tidak ada CG untuk filter ini.</div>';
   }
 
   function stackBar(counts, total) {
@@ -1176,6 +1193,12 @@
     if ((el = t.closest('[data-close-drawer]')) || t.id === 'drawerScrim') return closeDrawer();
     if ((el = t.closest('[data-person]'))) return openPerson(+el.dataset.person);
     if ((el = t.closest('[data-health]'))) { state.health.filter = el.dataset.health; return renderHealth(); }
+    if ((el = t.closest('[data-health-sort]'))) {
+      var sk = el.dataset.healthSort, hs = state.health.sort;
+      hs.dir = hs.key === sk ? -hs.dir : (/^(ncgl|sponsor|member)$/.test(sk) ? -1 : 1);
+      hs.key = sk;
+      return renderHealth();
+    }
     if ((el = t.closest('[data-coach]'))) return openCoach(el.dataset.coach);
     if ((el = t.closest('[data-tab]'))) return setTab(el.dataset.tab);
     if ((el = t.closest('[data-pos]'))) { state.drawer.pos = el.dataset.pos; return renderTab(); }
@@ -1211,6 +1234,9 @@
   });
 
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('.hl-table tr[data-cg-open]') && window.AOGCg) {
+      return window.AOGCg.open(e.target.dataset.cgOpen);
+    }
     if (e.key === 'Escape') {
       if (state.edit && $('#modalWrap').classList.contains('open')) { if (!state.edit.saving) cancelEdit(); }
       else if ($('#modalWrap').classList.contains('open')) closeModal();
