@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs', 'Swot.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -942,6 +942,24 @@ test('visi: TL visi counts all coaches under the TL; admin can write for anyone'
   assert.deepStrictEqual(clone(owners).sort(), ['Coach:Angie', 'Coach:Carla', 'TL:Rommy Christensen']);
   const forBudi = s.raw.saveVisi(admin, { owner: 'Budi', role: 'TL', text: 'Visi TL Budi', people: 100, cgs: 10, sponsors: 10, date: '2028-01-01' });
   assert.ok(forBudi.visions.some((x) => x.owner === 'Budi' && x.role === 'TL'));
+});
+
+console.log('Swot.gs');
+test('SWOT: TL writes for their coaches, coach reads only, versions are kept', () => {
+  const { s, angie, admin } = vSetup();
+  assert.strictEqual(s.raw.getSwot(angie, 'Angie').current, null);
+  let res = s.raw.saveSwot(s.token, { coach: 'angie', s: 'Hangat, dekat dengan CGL', w: 'Kurang rapi administrasi', o: 'Banyak mahasiswa baru', t: 'Jadwal kuliah padat' });
+  assert.deepStrictEqual([res.coach, res.current.s, res.current.by, res.current.role, res.canEdit], ['Angie', 'Hangat, dekat dengan CGL', 'Rommy Christensen', 'TL', true]);
+  const seen = s.raw.getSwot(angie, 'Angie');
+  assert.strictEqual(seen.canEdit, false);
+  assert.strictEqual(seen.current.w, 'Kurang rapi administrasi');
+  assert.throws(() => s.raw.saveSwot(angie, { coach: 'Angie', s: 'Saya hebat' }), /Hanya TL atau admin/);
+  assert.throws(() => s.raw.getSwot(angie, 'Carla'), /akses/);
+  assert.throws(() => s.raw.saveSwot(s.token, { coach: 'David', s: 'x' }), /akses/);
+  assert.throws(() => s.raw.saveSwot(s.token, { coach: 'Angie' }), /minimal satu/);
+  assert.strictEqual(s.raw.saveSwot(s.token, { coach: 'Angie', s: 'Hangat, dekat dengan CGL', w: 'Kurang rapi administrasi', o: 'Banyak mahasiswa baru', t: 'Jadwal kuliah padat' }).unchanged, true);
+  res = s.raw.saveSwot(admin, { coach: 'Angie', s: 'Hangat', w: 'Administrasi', o: 'Mahasiswa baru', t: 'Kuliah' });
+  assert.deepStrictEqual([res.current.s, res.current.role, res.history.length, res.history[0].s], ['Hangat', 'Admin', 1, 'Hangat, dekat dengan CGL']);
 });
 
 const csv = process.argv[2];

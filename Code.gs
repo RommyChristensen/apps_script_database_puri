@@ -32,6 +32,7 @@ const CONFIG = {
   VISIT_SHEET_NAME: 'Visit CG',
   VISI_SHEET_NAME: 'Visi',
   VISI_MILESTONE_SHEET_NAME: 'Visi Milestone',
+  SWOT_SHEET_NAME: 'SWOT Coach',
   TIME_ZONE: 'Asia/Jakarta',
 };
 

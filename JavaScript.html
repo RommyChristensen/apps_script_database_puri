@@ -537,7 +537,7 @@
       '<div class="cc-stat"><b>' + c.active + '</b><span>Aktif</span></div>' +
       '<div class="cc-stat"><b>' + c.serving + '</b><span>Melayani</span></div></div>' +
       '<div class="tabs" role="tablist"><span class="tab-ind"></span>' +
-      tabBtn('cg', 'CG') + tabBtn('people', 'Jemaat') + tabBtn('growth', 'Growth') + '</div>' +
+      tabBtn('cg', 'CG') + tabBtn('people', 'Jemaat') + tabBtn('growth', 'Growth') + (window.AOGSwot ? tabBtn('swot', 'SWOT') : '') + '</div>' +
       '<div id="tabPanel"></div>';
     renderTab();
   }
@@ -559,14 +559,16 @@
   function renderTab() {
     var c = currentCoach();
     var html = '';
+    var swot = state.drawer.tab === 'swot' && window.AOGSwot;
     if (state.drawer.tab === 'cg') html = renderCgTab(c);
     else if (state.drawer.tab === 'people') html = renderPeopleTab(c);
-    else html = renderGrowthTab(c);
+    else if (!swot) html = renderGrowthTab(c);
     var panel = $('#tabPanel');
     panel.className = '';
     void panel.offsetWidth; // restart animation
     panel.className = 'tab-panel';
-    panel.innerHTML = html;
+    delete panel.dataset.swot;
+    if (swot) window.AOGSwot.render(panel, c.key); else panel.innerHTML = html;
     requestAnimationFrame(moveTabIndicator);
   }
 
@@ -1126,6 +1128,7 @@
     if (window.AOGMultiply) window.AOGMultiply.reset();
     if (window.AOGVisits) window.AOGVisits.reset();
     if (window.AOGVisi) window.AOGVisi.reset();
+    if (window.AOGSwot) window.AOGSwot.reset();
     showLogin(message);
   }
 

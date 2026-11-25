@@ -1,0 +1,140 @@
+<script>
+/* SWOT tab in the coach drawer. TLs (for their coaches) and admins write it;
+   the coach sees their own SWOT read-only. Every save keeps the previous
+   version ("Riwayat"). Talks to Swot.gs. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, esc = A.esc;
+  var PARTS = [
+    { key: 's', label: 'Strengths', sub: 'Kekuatan', cls: 'sw-s', hint: 'Apa yang sudah kuat dari coach ini?' },
+    { key: 'w', label: 'Weaknesses', sub: 'Kelemahan', cls: 'sw-w', hint: 'Apa yang perlu diperbaiki?' },
+    { key: 'o', label: 'Opportunities', sub: 'Peluang', cls: 'sw-o', hint: 'Peluang yang bisa dimanfaatkan?' },
+    { key: 't', label: 'Threats', sub: 'Ancaman', cls: 'sw-t', hint: 'Apa yang bisa menghambat?' },
+  ];
+  var IC = {
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    lock: '<svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    clock: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  };
+
+  var W = { coach: '', data: {}, editing: false, draft: null, saving: false, showHistory: false };
+
+  function panel() { return $('#tabPanel'); }
+  function visible() { var p = panel(); return p && p.dataset.swot === W.coach; }
+
+  function render(el, coach) {
+    if (W.coach !== coach) { W.editing = false; W.showHistory = false; }
+    W.coach = coach;
+    el.dataset.swot = coach;
+    var d = W.data[coach];
+    if (!d) {
+      el.innerHTML = '<div class="empty">Memuat SWOT…</div>';
+      A.api('getSwot', coach).then(function (res) { W.data[coach] = res; if (visible()) draw(); }, function (err) {
+        if (!err.isAuth && visible()) panel().innerHTML = '<div class="empty">' + esc(A.errText(err)) + '</div>';
+      });
+      return;
+    }
+    draw();
+  }
+
+  function stamp(v) {
+    return esc((v.role ? v.role + ' ' : '') + v.by) + ' · ' + esc(v.at);
+  }
+
+  function grid(v, edit) {
+    return '<div class="sw-grid">' + PARTS.map(function (p) {
+      var text = v ? v[p.key] : '';
+      return '<section class="sw-box ' + p.cls + '"><header><b>' + p.label[0] + '</b><span>' + p.label + '<small>' + p.sub + '</small></span></header>' +
+        (edit
+          ? '<textarea data-sw-field="' + p.key + '" rows="5" maxlength="3000" placeholder="' + esc(p.hint) + '">' + esc(text) + '</textarea>'
+          : (text ? '<p>' + esc(text) + '</p>' : '<p class="sw-empty">Belum diisi</p>')) +
+        '</section>';
+    }).join('') + '</div>';
+  }
+
+  function draw() {
+    var el = panel();
+    if (!el) return;
+    var d = W.data[W.coach];
+    var cur = d.current;
+    var head;
+    if (W.editing) {
+      head = '<div class="sw-head"><div><b>Ubah SWOT</b><span>Versi lama tetap tersimpan di riwayat.</span></div>' +
+        '<div class="sw-actions"><button type="button" class="btn sm" data-sw-cancel>Batal</button>' +
+        '<button type="button" class="btn sm primary" id="swSave"><span class="spin"></span>' + IC.check + '<span id="swSaveLabel">Simpan</span></button></div></div>' +
+        '<div class="ldp-err sw-err" id="swErr"></div>';
+    } else {
+      head = '<div class="sw-head"><div><b>SWOT Coach ' + esc(W.coach) + '</b>' +
+        (cur ? '<span>' + IC.clock + 'Terakhir diperbarui ' + stamp(cur) + '</span>' : '<span>Belum ada SWOT.</span>') + '</div>' +
+        (d.canEdit
+          ? '<div class="sw-actions"><button type="button" class="btn sm primary" data-sw-edit>' + IC.edit + (cur ? 'Ubah SWOT' : 'Isi SWOT') + '</button></div>'
+          : '<span class="vs-ro">' + IC.lock + 'Diisi oleh TL</span>') + '</div>';
+    }
+    var body = W.editing ? grid(W.draft, true) : (cur ? grid(cur, false)
+      : '<div class="mt-empty"><b>Belum ada SWOT</b><span>' + (d.canEdit ? 'Klik <b>Isi SWOT</b> untuk menuliskan analisis coach ini.' : 'TL kamu belum mengisi SWOT.') + '</span></div>');
+    var hist = '';
+    if (!W.editing && d.history.length) {
+      hist = '<div class="sw-hist"><button type="button" class="link-btn" data-sw-history>' + (W.showHistory ? 'Sembunyikan riwayat' : 'Lihat riwayat (' + d.history.length + ' versi sebelumnya)') + '</button>' +
+        (W.showHistory ? d.history.map(function (v) {
+          return '<details class="sw-old"><summary>' + stamp(v) + '</summary>' + grid(v, false) + '</details>';
+        }).join('') : '') + '</div>';
+    }
+    el.innerHTML = '<div class="sw-wrap">' + head + body + hist + '</div>';
+  }
+
+  function startEdit() {
+    var cur = W.data[W.coach].current || {};
+    W.draft = { s: cur.s || '', w: cur.w || '', o: cur.o || '', t: cur.t || '' };
+    W.editing = true;
+    draw();
+    var first = panel().querySelector('textarea');
+    if (first) first.focus();
+  }
+
+  function save() {
+    if (W.saving) return;
+    var body = Object.assign({ coach: W.coach }, W.draft);
+    if (!PARTS.some(function (p) { return body[p.key].trim(); })) { $('#swErr').textContent = 'Isi minimal satu bagian SWOT.'; return; }
+    W.saving = true;
+    $('#swSave').disabled = true;
+    $('#swSave').classList.add('loading');
+    $('#swSaveLabel').textContent = 'Menyimpan…';
+    var coach = W.coach;
+    A.api('saveSwot', body).then(function (res) {
+      W.saving = false;
+      W.data[coach] = res;
+      W.editing = false;
+      if (visible()) draw();
+      A.toast(res.unchanged ? 'Tidak ada perubahan' : 'SWOT Coach ' + coach + ' tersimpan ✨');
+    }, function (err) {
+      W.saving = false;
+      if (err.isAuth || !$('#swSave')) return;
+      $('#swSave').disabled = false;
+      $('#swSave').classList.remove('loading');
+      $('#swSaveLabel').textContent = 'Simpan';
+      $('#swErr').textContent = A.errText(err);
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.closest('#tabPanel')) return;
+    if (t.closest('[data-sw-edit]')) return startEdit();
+    if (t.closest('[data-sw-cancel]')) { if (!W.saving) { W.editing = false; draw(); } return; }
+    if (t.closest('#swSave')) return save();
+    if (t.closest('[data-sw-history]')) { W.showHistory = !W.showHistory; return draw(); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var k = e.target.dataset && e.target.dataset.swField;
+    if (k && W.draft) W.draft[k] = e.target.value;
+  });
+
+  window.AOGSwot = {
+    render: render,
+    reset: function () { W = { coach: '', data: {}, editing: false, draft: null, saving: false, showHistory: false }; },
+  };
+})();
+</script>

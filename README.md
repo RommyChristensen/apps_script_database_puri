@@ -65,6 +65,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `VisitsUi.html` | Visit CG menu (Jadwal, Log, Cakupan) and forms |
 | `Visi.gs` | Visi of coaches / TLs, targets and milestones |
 | `VisiUi.html` | Visi menu, progress meters and milestone timeline |
+| `Swot.gs` | SWOT of each coach (written by TL / admin, with history) |
+| `SwotUi.html` | SWOT tab in the coach drawer |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -77,8 +79,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits` and `Visi`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi` and `VisiUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits`, `Visi` and `Swot`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi`, `VisiUi` and `SwotUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -150,6 +152,14 @@ Every CG gets a colour, computed from the database (people with STATUS Non-Aktif
 
 The rules are checked in that order. Shown in the "Kesehatan CG" section of the dashboard, on the coach cards,
 the CG cards in the coach drawer and the CG page. The rule lives in `cgHealth` in `JavaScript.html`.
+
+## SWOT Coach tab
+
+- Coach drawer (click a coach card) → **SWOT** tab: Strengths, Weaknesses, Opportunities, Threats.
+- TLs write it for the coaches under them, admins for every coach. The coach sees their own SWOT read-only.
+- Every save adds a row, so earlier versions stay available under "Lihat riwayat". Saving without changes adds nothing.
+- Stored in the **SWOT Coach** tab (created automatically): ID, COACH, STRENGTHS, WEAKNESSES, OPPORTUNITIES,
+  THREATS, OLEH, PERAN, DISIMPAN PADA. The newest row of a coach is the current SWOT.
 
 ## Visi and Visi Milestone tabs
 
