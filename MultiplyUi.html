@@ -1,0 +1,404 @@
+<script>
+/* "Multiplikasi" menu: the birth of a new CG out of an existing one.
+   History comes from the "Multiplikasi CG" tab; the form (also opened from a
+   CG page) picks the source CG, the new CG number, coach, date, the new leader
+   (any visible person; admins see every coach), schedule, optional location
+   and a checklist of members who move. Talks to Multiply.gs. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  var MODES = ['Onsite', 'Online', 'Onsite & Online'];
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    sprout: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-7 8-7 0 5-3 7-8 7zM12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 5.5 7 5.5z"/></svg>',
+    plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    arrow: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+    search: '<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    star: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/></svg>',
+  };
+
+  var M = { history: null, loading: false, q: '', f: null };
+
+  function user() { return (A.state.data && A.state.data.user) || {}; }
+  function sameCoach(a, b) { return String(a || '').toLowerCase() === String(b || '').toLowerCase(); }
+  function canUse(coach) { var u = user(); return !!(u.isAdmin || sameCoach(u.coach, coach)); }
+
+  /** "aog 5" → "AOG 05" (same rule as normalizeCgCode_ in Multiply.gs). */
+  function normCode(v) {
+    var m = /^([A-Za-z]{2,10})\s*0*(\d{1,3})$/.exec(String(v || '').trim());
+    if (!m || +m[2] === 0) return '';
+    return m[1].toUpperCase() + ' ' + ('0' + (+m[2])).slice(-2);
+  }
+
+  /** CGs visible to this session: { code, coach, cgl, list }. */
+  function cgs() {
+    var by = {};
+    (A.state.people || []).forEach(function (p) {
+      if (p.isCoach || !p.cg) return;
+      (by[p.cg] = by[p.cg] || []).push(p);
+    });
+    return Object.keys(by).map(function (code) {
+      var list = by[code];
+      var cgl = list.filter(function (p) { return p.position === 'CGL'; })[0];
+      return { code: code, coach: list[0].coach, cgl: cgl ? cgl.name : '', list: list };
+    }).sort(function (a, b) { return a.coach.localeCompare(b.coach) || a.code.localeCompare(b.code, 'id', { numeric: true }); });
+  }
+
+  function suggestCode(source) {
+    var prefix = (/^([A-Za-z]+)/.exec(source || '') || [])[1] || 'AOG';
+    var max = 0;
+    cgs().forEach(function (c) {
+      var m = /^([A-Za-z]+)\s*0*(\d+)$/.exec(c.code);
+      if (m && m[1].toUpperCase() === prefix.toUpperCase()) max = Math.max(max, +m[2]);
+    });
+    return normCode(prefix + ' ' + (max + 1));
+  }
+
+  // ───────────── history page ─────────────
+  function load() {
+    if (M.loading) return;
+    M.loading = true;
+    if (!M.history) render();
+    A.api('getMultiplications').then(function (res) {
+      M.loading = false;
+      M.history = res.history || [];
+      render();
+    }, function (err) {
+      M.loading = false;
+      if (err.isAuth) return;
+      M.history = M.history || [];
+      render();
+      A.toast(A.errText(err));
+    });
+  }
+
+  function render() {
+    var box = $('#mulList');
+    if (!box) return;
+    var h = M.history || [];
+    var year = String(new Date().getFullYear());
+    var thisYear = h.filter(function (x) { return x.date.slice(0, 4) === year; });
+    var moved = h.reduce(function (s, x) { return s + x.count + 1; }, 0);
+    var stats = [
+      { n: h.length, label: 'CG lahir' },
+      { n: thisYear.length, label: 'Tahun ' + year },
+      { n: moved, label: 'Jiwa di CG baru' },
+      { n: cgs().length, label: 'CG sekarang' },
+    ];
+    $('#mulStats').innerHTML = stats.map(function (s, i) {
+      return '<div class="mt-stat' + (i === 0 ? ' is-ok' : '') + '" style="animation-delay:' + i * 40 + 'ms"><b>' + s.n + '</b><span>' + esc(s.label) + '</span></div>';
+    }).join('');
+
+    if (!M.history) { box.innerHTML = '<div class="mt-empty">Memuat riwayat…</div>'; return; }
+    var q = M.q.toLowerCase().trim();
+    var list = h.filter(function (x) {
+      return !q || [x.source, x.newCg, x.coach, x.leader, x.names.join(' ')].join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+    if (!list.length) {
+      box.innerHTML = '<div class="mt-empty">' + IC.sprout + '<b>' + (h.length ? 'Tidak ada yang cocok' : 'Belum ada multiplikasi') + '</b>' +
+        (h.length ? '' : 'Klik <b>Multiplikasi baru</b> saat sebuah CG melahirkan CG baru.') + '</div>';
+      return;
+    }
+    var lastYear = '';
+    box.innerHTML = list.map(function (x, i) {
+      var d = x.date ? new Date(x.date + 'T00:00:00') : null;
+      var y = x.date.slice(0, 4);
+      var head = y !== lastYear ? '<div class="mt-month">' + esc(y || 'Tanpa tanggal') + '</div>' : '';
+      lastYear = y;
+      var exists = (A.state.people || []).some(function (p) { return p.cg === x.newCg; });
+      return head + '<article class="mt-card mul-card" style="animation-delay:' + Math.min(i, 8) * 35 + 'ms">' +
+        '<div class="mt-date">' + (d ? '<b>' + d.getDate() + '</b><span>' + MONTHS[d.getMonth()] + '</span>' : '<b>–</b>') + '</div>' +
+        '<div class="mt-main"><div class="mul-flow">' +
+        '<span class="mul-cg src">' + esc(x.source) + '</span><span class="mul-arrow">' + IC.arrow + '</span>' +
+        (exists ? '<button type="button" class="mul-cg new" data-cg-open="' + esc(x.newCg) + '">' + esc(x.newCg) + '</button>'
+          : '<span class="mul-cg new">' + esc(x.newCg) + '</span>') +
+        '<span class="mt-cat">Coach ' + esc(x.coach) + '</span></div>' +
+        '<div class="mul-leader">' + IC.star + '<span>CGL <b>' + esc(x.leader) + '</b> · ' + (x.count + 1) + ' jiwa</span></div>' +
+        (x.names.length ? '<div class="mul-names">' + x.names.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join('') + '</div>' : '') +
+        '<div class="mul-by">Dicatat ' + esc(x.by) + (x.at ? ' · ' + esc(x.at) : '') + '</div>' +
+        '</div></article>';
+    }).join('');
+  }
+
+  // ───────────── form ─────────────
+  function openForm(source) {
+    var all = cgs();
+    var u = user();
+    var src = all.filter(function (c) { return c.code === source; })[0] ||
+      all.filter(function (c) { return canUse(c.coach); })[0];
+    if (!src) { A.toast('Belum ada CG yang bisa dimultiplikasi.'); return; }
+    var info = function (k) { return A.cgInfo(src.list, k); };
+    M.f = {
+      source: src.code, code: suggestCode(src.code), coach: u.isAdmin ? src.coach : (canUse(src.coach) ? src.coach : u.coach),
+      date: A.toIso(new Date()), leader: null, members: {}, leaderQ: '', listOpen: false,
+      time: '', mode: info('cgStatus') || 'Onsite', area: info('cgArea'), place: '', where: '', saving: false, err: '',
+    };
+    renderForm();
+    $('#mulModalWrap').classList.add('open');
+    $('#mulModalWrap').setAttribute('aria-hidden', 'false');
+    A.updateLock();
+  }
+
+  function closeForm() {
+    if (!M.f || M.f.saving) return;
+    M.f = null;
+    $('#mulModalWrap').classList.remove('open');
+    $('#mulModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+
+  function sourceCg() { return cgs().filter(function (c) { return c.code === M.f.source; })[0]; }
+  function coaches() {
+    var u = user();
+    var keys = (A.state.coaches || []).map(function (c) { return c.key; });
+    return u.isAdmin ? keys : keys.filter(function (k) { return sameCoach(k, u.coach); });
+  }
+
+  /** Problems that block saving (shown under the fields). */
+  function check() {
+    var f = M.f, out = {};
+    var code = normCode(f.code);
+    if (!code) out.code = 'Format: huruf + nomor, mis. AOG 23.';
+    else if (cgs().some(function (c) { return c.code === code; })) out.code = code + ' sudah dipakai.';
+    if (!f.date) out.date = 'Isi tanggal.';
+    if (!f.leader) out.leader = 'Pilih leader CG baru.';
+    return out;
+  }
+
+  function movers() {
+    var src = sourceCg();
+    return src ? src.list.filter(function (p) { return M.f.members[p.id] && (!M.f.leader || p.id !== M.f.leader.id); }) : [];
+  }
+
+  function leaderCandidates() {
+    var q = M.f.leaderQ.toLowerCase().trim();
+    return (A.state.people || []).filter(function (p) {
+      return !p.isCoach && (!q || [p.name, p.cg, p.coach, p.position].join(' ').toLowerCase().indexOf(q) >= 0);
+    }).sort(function (a, b) {
+      var sa = a.cg === M.f.source ? 0 : 1, sb = b.cg === M.f.source ? 0 : 1;
+      return sa - sb || a.name.localeCompare(b.name);
+    }).slice(0, 40);
+  }
+
+  function personLine(p) {
+    var info = A.posInfo(p.position);
+    return '<span class="dot" style="background:' + info.color + '">' + esc(A.initials(p.name)) + '</span>' +
+      '<span class="pr-main"><span class="pr-name">' + esc(p.name) + '</span>' +
+      '<span class="pr-sub">' + esc([p.position === 'UNKNOWN' ? '' : p.position, p.cg, 'Coach ' + p.coach].filter(Boolean).join(' · ')) + '</span></span>';
+  }
+
+  function renderForm() {
+    var f = M.f;
+    var all = cgs();
+    var src = sourceCg();
+    var problems = check();
+    var leader = f.leader;
+    var mv = movers();
+    var warn = [];
+    if (leader && leader.position === 'CGL') {
+      warn.push(leader.name + ' sekarang CGL ' + leader.cg + '. Setelah multiplikasi, ' + leader.cg + ' tidak punya CGL sampai ada yang diangkat.');
+    }
+    if (leader && !sameCoach(leader.coach, f.coach)) warn.push(leader.name + ' pindah dari coach ' + leader.coach + ' ke coach ' + f.coach + '.');
+    mv.filter(function (p) { return p.position === 'CGL'; }).forEach(function (p) {
+      warn.push(p.name + ' adalah CGL ' + p.cg + ' dan ikut pindah. Posisinya tetap CGL; ' + p.cg + ' perlu CGL baru.');
+    });
+    if (!sameCoach(src.coach, f.coach) && mv.length) warn.push('Anggota yang dicentang pindah ke coach ' + f.coach + '.');
+
+    var checklist = src.list.filter(function (p) { return !leader || p.id !== leader.id; });
+    var allOn = checklist.length && checklist.every(function (p) { return f.members[p.id]; });
+
+    $('#mulModal').innerHTML =
+      '<div class="m-head mul-head"><div class="m-head-row"><div class="avatar lg">' + IC.sprout + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">Multiplikasi CG</div>' +
+      '<div class="m-sub">Lahirnya CG baru dari ' + esc(f.source) + '</div></div>' +
+      '<button class="close-btn dark" data-mul-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body mt-form">' +
+
+      '<div class="mul-step"><span>1</span>CG baru</div>' +
+      '<div class="form-grid">' +
+      '<div class="field"><label for="mulSource">CG asal</label><select id="mulSource" class="mul-select">' +
+      all.map(function (c) {
+        return '<option value="' + esc(c.code) + '"' + (c.code === f.source ? ' selected' : '') + '>' + esc(c.code + ' · ' + (c.cgl ? 'CGL ' + c.cgl : 'Coach ' + c.coach)) + '</option>';
+      }).join('') + '</select></div>' +
+      '<div class="field' + (problems.code && f.code ? ' invalid' : '') + '"><label for="mulCode">Nomor CG baru</label>' +
+      '<input id="mulCode" maxlength="14" value="' + esc(f.code) + '" placeholder="mis. AOG 23" autocomplete="off">' +
+      '<div class="err" id="mulCodeErr">' + esc(f.code ? problems.code || '' : '') + '</div>' +
+      '<div class="hint soft" id="mulCodeHint">' + (normCode(f.code) && !problems.code ? 'Disimpan sebagai ' + esc(normCode(f.code)) : '') + '</div></div>' +
+      '<div class="field"><label for="mulCoach">Coach CG baru</label><select id="mulCoach" class="mul-select"' + (coaches().length < 2 ? ' disabled' : '') + '>' +
+      coaches().map(function (k) { return '<option value="' + esc(k) + '"' + (sameCoach(k, f.coach) ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label for="mulDate">Tanggal multiplikasi</label><input id="mulDate" type="date" value="' + esc(f.date) + '"></div>' +
+      '</div>' +
+
+      '<div class="mul-step"><span>2</span>Leader (jadi CGL)</div>' +
+      '<div class="field wide' + (problems.leader && f.err ? ' invalid' : '') + '">' +
+      (leader
+        ? '<div class="mul-picked">' + personLine(leader) + '<button type="button" class="btn sm" data-mul-unpick>Ganti</button></div>'
+        : '<div class="picker"><div class="pick-chips">' + IC.search +
+          '<input id="mulLeaderQ" placeholder="Cari nama, bisa dari CG atau coach lain…" value="' + esc(f.leaderQ) + '" autocomplete="off"></div>' +
+          '<div class="pick-list' + (f.listOpen ? ' open' : '') + '" id="mulLeaderList">' + leaderListHtml() + '</div></div>') +
+      '<div class="hint soft">Posisinya naik jadi CGL, TGL JD CGL diisi tanggal multiplikasi, dan tercatat di LDP.</div></div>' +
+      (warn.length ? '<div class="rs-warn">' + IC.warn + '<span>' + warn.map(esc).join('<br>') + '</span></div>' : '') +
+
+      '<div class="mul-step"><span>3</span>Jadwal &amp; lokasi</div>' +
+      '<div class="form-grid">' +
+      '<div class="field"><label for="mulTime">Waktu CG</label><input id="mulTime" maxlength="100" value="' + esc(f.time) + '" placeholder="mis. Sabtu 15.00"></div>' +
+      '<div class="field"><label for="mulArea">Daerah CG</label><input id="mulArea" maxlength="100" value="' + esc(f.area) + '" placeholder="mis. Puri"></div>' +
+      '<div class="field wide"><label>Status CG</label><div class="chips seg tight">' + MODES.map(function (m) {
+        return '<button type="button" class="chip' + (f.mode === m ? ' active' : '') + '" data-mul-mode="' + esc(m) + '">' + esc(m) + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="field"><label for="mulPlace">Nama tempat <span class="opt">opsional</span></label><input id="mulPlace" maxlength="120" value="' + esc(f.place) + '" placeholder="mis. Rumah Kevin"></div>' +
+      '<div class="field"><label for="mulWhere">Link Google Maps / alamat <span class="opt">opsional</span></label><input id="mulWhere" maxlength="500" value="' + esc(f.where) + '" placeholder="https://maps.app.goo.gl/… atau alamat"></div>' +
+      '</div>' +
+
+      '<div class="mul-step"><span>4</span>Anggota yang pindah<span class="mul-count">' + mv.length + ' dari ' + checklist.length + '</span></div>' +
+      (checklist.length
+        ? '<label class="mul-all"><input type="checkbox" id="mulAll"' + (allOn ? ' checked' : '') + '><span>Pilih semua anggota ' + esc(f.source) + '</span></label>' +
+          '<div class="mul-checks">' + checklist.map(function (p) {
+            return '<label class="mul-check' + (f.members[p.id] ? ' on' : '') + '"><input type="checkbox" data-mul-member="' + p.id + '"' + (f.members[p.id] ? ' checked' : '') + '>' +
+              personLine(p) + '</label>';
+          }).join('') + '</div>'
+        : '<div class="sr-empty">Tidak ada anggota lain di ' + esc(f.source) + '.</div>') +
+      '</div>' +
+
+      '<div class="m-footer"><span class="ldp-err" id="mulErr">' + esc(f.err) + '</span><button type="button" class="btn" data-mul-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="mulSave"' + (Object.keys(problems).length ? ' disabled' : '') + '><span class="spin"></span>' + IC.sprout +
+      '<span id="mulSaveLabel">' + esc(normCode(f.code) ? 'Lahirkan ' + normCode(f.code) : 'Lahirkan CG') + (leader ? ' · ' + (mv.length + 1) + ' jiwa' : '') + '</span></button></div>';
+  }
+
+  function leaderListHtml() {
+    var list = leaderCandidates();
+    return list.map(function (p) {
+      return '<button type="button" class="pick-item" data-mul-leader="' + p.id + '">' + personLine(p) + '</button>';
+    }).join('') || '<div class="sr-empty">Tidak ketemu.</div>';
+  }
+
+  /** Re-render while keeping focus/caret in the field being typed in. */
+  function rerender(focusId) {
+    var el = focusId && $('#' + focusId);
+    var pos = el && el.selectionStart;
+    var scroll = $('#mulModal .m-body') && $('#mulModal .m-body').scrollTop;
+    renderForm();
+    if (scroll) $('#mulModal .m-body').scrollTop = scroll;
+    var again = focusId && $('#' + focusId);
+    if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* date inputs */ } }
+  }
+
+  function save() {
+    var f = M.f;
+    if (!f || f.saving) return;
+    var problems = check();
+    if (Object.keys(problems).length) { f.err = problems.code || problems.leader || problems.date; return rerender(); }
+    var where = f.where.trim();
+    var isLink = /^https?:\/\//i.test(where);
+    var body = {
+      sourceCg: f.source, newCg: normCode(f.code), coach: f.coach, date: f.date,
+      leader: { id: f.leader.id, name: f.leader.name },
+      members: movers().map(function (p) { return { id: p.id, name: p.name }; }),
+      cgTime: f.time.trim(), cgStatus: f.mode, cgArea: f.area.trim(),
+    };
+    if (where) body.location = { place: f.place.trim(), link: isLink ? where : '', address: isLink ? '' : where };
+    f.saving = true;
+    $('#mulSave').disabled = true;
+    $('#mulSave').classList.add('loading');
+    $('#mulSaveLabel').textContent = 'Menyimpan…';
+    $('#mulErr').textContent = '';
+    A.api('multiplyCg', body).then(function (res) {
+      f.saving = false;
+      M.history = res.history || M.history;
+      closeForm();
+      A.applyData(res.data);
+      render();
+      A.toast(res.newCg + ' lahir! 🎉 CGL ' + body.leader.name.split(' ')[0]);
+      if (window.AOGCg) window.AOGCg.open(res.newCg);
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth) return;
+      f.err = A.errText(err);
+      rerender();
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if (t.closest('#newMulBtn')) return openForm('');
+    if ((el = t.closest('[data-mul-open]'))) return openForm(el.dataset.mulOpen);
+    if (!M.f) return;
+    if (t.closest('[data-mul-close]')) return closeForm();
+    if (t.closest('#mulSave')) return save();
+    if ((el = t.closest('[data-mul-mode]'))) { M.f.mode = el.dataset.mulMode; return rerender(); }
+    if ((el = t.closest('[data-mul-leader]'))) {
+      var p = A.state.byId[+el.dataset.mulLeader];
+      if (p) { M.f.leader = p; delete M.f.members[p.id]; M.f.listOpen = false; M.f.leaderQ = ''; M.f.err = ''; }
+      return rerender();
+    }
+    if (t.closest('[data-mul-unpick]')) { M.f.leader = null; M.f.listOpen = true; return rerender('mulLeaderQ'); }
+    if (M.f.listOpen && !t.closest('.picker')) { M.f.listOpen = false; var l = $('#mulLeaderList'); if (l) l.classList.remove('open'); }
+  });
+
+  document.addEventListener('focusin', function (e) {
+    if (M.f && e.target.id === 'mulLeaderQ' && !M.f.listOpen) { M.f.listOpen = true; $('#mulLeaderList').classList.add('open'); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var f = M.f, id = e.target.id;
+    if (id === 'mulSearch') { M.q = e.target.value; return render(); }
+    if (!f) return;
+    if (id === 'mulLeaderQ') { f.leaderQ = e.target.value; f.listOpen = true; $('#mulLeaderList').innerHTML = leaderListHtml(); $('#mulLeaderList').classList.add('open'); return; }
+    if (id === 'mulCode') { f.code = e.target.value; f.err = ''; return rerender('mulCode'); }
+    if (id === 'mulTime') f.time = e.target.value;
+    if (id === 'mulArea') f.area = e.target.value;
+    if (id === 'mulPlace') f.place = e.target.value;
+    if (id === 'mulWhere') f.where = e.target.value;
+  });
+
+  document.addEventListener('change', function (e) {
+    var f = M.f, t = e.target;
+    if (!f) return;
+    if (t.id === 'mulSource') {
+      f.source = t.value; f.members = {};
+      var src = sourceCg();
+      if (!f.codeTouched) f.code = suggestCode(f.source);
+      f.mode = A.cgInfo(src.list, 'cgStatus') || f.mode; f.area = A.cgInfo(src.list, 'cgArea') || f.area;
+      if (user().isAdmin) f.coach = src.coach;
+      return rerender();
+    }
+    if (t.id === 'mulCode') f.codeTouched = true;
+    if (t.id === 'mulCoach') { f.coach = t.value; return rerender(); }
+    if (t.id === 'mulDate') { f.date = t.value; return rerender(); }
+    if (t.id === 'mulAll') {
+      sourceCg().list.forEach(function (p) { if (!f.leader || p.id !== f.leader.id) { if (t.checked) f.members[p.id] = true; else delete f.members[p.id]; } });
+      return rerender();
+    }
+    if (t.dataset && t.dataset.mulMember) {
+      if (t.checked) f.members[t.dataset.mulMember] = true; else delete f.members[t.dataset.mulMember];
+      return rerender();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (M.f && e.key === 'Escape') { e.stopPropagation(); closeForm(); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.multiply = function () { render(); load(); };
+  window.AOGMultiply = {
+    open: openForm,
+    onData: function () { var v = $('#mulView'); if (v && !v.hidden) render(); },
+    reset: function () {
+      M.history = null; M.q = '';
+      if (M.f) M.f.saving = false;
+      M.f = null;
+      var w = $('#mulModalWrap');
+      if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+      var s = $('#mulSearch'); if (s) s.value = '';
+    },
+  };
+})();
+</script>

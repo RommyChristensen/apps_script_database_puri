@@ -27,6 +27,8 @@ const CONFIG = {
   LOCATION_SHEET_NAME: 'Lokasi CG',
   // Rows deleted from the database are copied here first (see Restructure.gs).
   ARCHIVE_SHEET_NAME: 'Arsip Jemaat',
+  // One row per new CG born from an existing one (see Multiply.gs).
+  MULTIPLY_SHEET_NAME: 'Multiplikasi CG',
   TIME_ZONE: 'Asia/Jakarta',
 };
 

@@ -172,7 +172,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -215,6 +215,7 @@
     renderComposition();
     renderGaps();
     if (window.AOGCg) window.AOGCg.onData();
+    if (window.AOGMultiply) window.AOGMultiply.onData();
     if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
     if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
     if (!quiet && window.AOGLocations) window.AOGLocations.onDashboard();
@@ -994,6 +995,7 @@
     if (window.AOGLocations) window.AOGLocations.reset();
     if (window.AOGCg) window.AOGCg.reset();
     if (window.AOGRestructure) window.AOGRestructure.reset();
+    if (window.AOGMultiply) window.AOGMultiply.reset();
     showLogin(message);
   }
 

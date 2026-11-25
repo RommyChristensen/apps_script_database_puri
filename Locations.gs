@@ -43,35 +43,44 @@ function setCgLocation(token, loc) {
   const cg = cgs.filter(function (c) { return c.code === String(loc.cg).toUpperCase().trim(); })[0];
   if (!cg) throw new Error('CG "' + loc.cg + '" tidak ditemukan di database.');
   if (!canAccessCoach_(session, cg.coach)) throw new Error('Kamu hanya bisa mengubah lokasi CG milik coach kamu.');
+  const resolved = resolveLocation_(loc);
+  return withScriptLock_(function () {
+    writeLocationRow_(ss, session, cg.code, cg.coach, resolved);
+    SpreadsheetApp.flush();
+    return locationsPayload_(ss, session);
+  });
+}
 
+/**
+ * Cleans the form input and works out coordinates (pin, else Maps link, else address).
+ * Throws when a link/address was given but can't be placed. Returns { place, address, link, coords }.
+ */
+function resolveLocation_(loc) {
   const place = String(loc.place || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const address = String(loc.address || '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const link = String(loc.link || '').trim().slice(0, 500);
   if (link && !/^https:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl|g\.co)\//i.test(link)) {
     throw new Error('Link harus link Google Maps (https://maps.app.goo.gl/… atau https://www.google.com/maps/…).');
   }
-
   let coords = validCoords_(loc.lat, loc.lng);
   if (!coords && link) coords = coordsFromMapsLink_(link);
   if (!coords && address) coords = geocode_(address);
   if (!coords && (link || address)) {
     throw new Error('Lokasi tidak ketemu dari link/alamat itu. Coba tempel link Google Maps lain, atau klik peta untuk menaruh pin.');
   }
+  return { place: place, address: address, link: link, coords: coords };
+}
 
-  return withScriptLock_(function () {
-    const sheet = getLocationSheet_(ss, true);
-    const rows = readLocationRows_(sheet);
-    const existing = rows.filter(function (r) { return r.code === cg.code; })[0];
-    const now = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm');
-    const values = [[cg.code, cg.coach, place, address, link,
-      coords ? coords.lat.toFixed(6) : '', coords ? coords.lng.toFixed(6) : '', session.username, now]];
-    const rowNo = existing ? existing.row : sheet.getLastRow() + 1;
-    const range = sheet.getRange(rowNo, 1, 1, LOCATION.HEADERS.length);
-    range.setNumberFormat('@');
-    range.setValues(values);
-    SpreadsheetApp.flush();
-    return locationsPayload_(ss, session);
-  });
+/** Writes (or replaces) the Lokasi CG row of one CG. Caller holds the script lock. */
+function writeLocationRow_(ss, session, code, coach, r) {
+  const sheet = getLocationSheet_(ss, true);
+  const existing = readLocationRows_(sheet).filter(function (x) { return x.code === code; })[0];
+  const now = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm');
+  const values = [[code, coach, r.place, r.address, r.link,
+    r.coords ? r.coords.lat.toFixed(6) : '', r.coords ? r.coords.lng.toFixed(6) : '', session.username, now]];
+  const range = sheet.getRange(existing ? existing.row : sheet.getLastRow() + 1, 1, 1, LOCATION.HEADERS.length);
+  range.setNumberFormat('@');
+  range.setValues(values);
 }
 
 /** Called from the edit form to preview where an address or Maps link lands. */

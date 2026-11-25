@@ -110,12 +110,14 @@ function main() {
     ${read('Ldp.gs')}
     ${read('Locations.gs')}
     ${read('Restructure.gs')}
+    ${read('Multiply.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
       getLdpProgress: getLdpProgress, saveLdp: saveLdp,
       getCgLocations: getCgLocations, setCgLocation: setCgLocation, previewLocation: previewLocation,
-      updateCgInfo: updateCgInfo, movePerson: movePerson, deletePerson: deletePerson };
+      updateCgInfo: updateCgInfo, movePerson: movePerson, deletePerson: deletePerson,
+      multiplyCg: multiplyCg, getMultiplications: getMultiplications };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

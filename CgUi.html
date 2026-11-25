@@ -20,6 +20,7 @@
     edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
     close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    sprout: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4 3-7 8-7 0 5-3 7-8 7zM12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 5.5 7 5.5z"/></svg>',
     users: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
   };
 
@@ -123,7 +124,8 @@
       '<div class="cg-hero-text"><div class="eyebrow">Connect Group · Coach ' + esc(coach.name) + '</div>' +
       '<h1>' + esc(C.code) + '</h1>' +
       '<p class="hero-sub">' + (cglRow ? 'CGL ' + esc(cglRow.name) : 'Belum ada CGL di database') + '</p>' +
-      (canEdit(list) ? '<button class="btn cg-edit-btn" data-cg-edit>' + IC.edit + 'Ubah info CG</button>' : '') + '</div>' +
+      (canEdit(list) ? '<div class="cg-hero-actions"><button class="btn cg-edit-btn" data-cg-edit>' + IC.edit + 'Ubah info CG</button>' +
+        (window.AOGMultiply ? '<button class="btn cg-edit-btn" data-mul-open="' + esc(C.code) + '">' + IC.sprout + 'Multiplikasi</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="hero-stats">' + stats.map(function (s) {
         return '<div class="stat"><div class="stat-num">' + s.n + '</div><div class="stat-label">' + esc(s.label) + '</div><div class="stat-hint">' + esc(s.hint) + '</div></div>';
       }).join('') + '</div></section>' +

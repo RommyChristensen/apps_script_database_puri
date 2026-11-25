@@ -59,6 +59,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `LdpUi.html` | LDP page and the per-person LDP update form |
 | `Restructure.gs` | CG info for all rows, Pindah CG, delete with archive (password check) |
 | `RestructureUi.html` | Pindah CG and Hapus forms |
+| `Multiply.gs` | Multiplikasi: new CG, leader promoted to CGL, history in the "Multiplikasi CG" tab |
+| `MultiplyUi.html` | Multiplikasi menu (history) and the new-CG form |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -71,8 +73,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations` and `Restructure`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi` and `RestructureUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure` and `Multiply`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi` and `MultiplyUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -129,6 +131,21 @@ npm i -g @google/clasp && clasp login
 clasp clone <SCRIPT_ID>   # or: clasp create --type sheets --title "AOG Dashboard"
 clasp push && clasp deploy
 ```
+
+## Multiplikasi CG tab
+
+The **Multiplikasi** menu (and the "Multiplikasi" button on a CG page) creates a new CG out of an existing one:
+
+- Choose the source CG, the new CG number (e.g. `aog 5` is saved as `AOG 05`, and it must not be in use yet),
+  the coach of the new CG, the date, the leader (anyone you can see, from any CG), the schedule, an optional
+  location, and tick the members who move.
+- The rows of the leader and the ticked members get the new NO CG, CGL, COACH, WAKTU / STATUS / DAERAH CG.
+- If the leader is below CGL, they are promoted: POSISI = CGL, TGL JD CGL = the date (if empty), plus a
+  "Berhasil" CGL entry in **LDP Progress**. An existing CGL or higher is never demoted.
+- A location goes into **Lokasi CG**. Every multiplikasi is recorded as one row in the **Multiplikasi CG** tab
+  (created automatically): TANGGAL, CG ASAL, CG BARU, COACH, LEADER, JUMLAH PINDAH, NAMA, OLEH, DICATAT PADA.
+- Coaches can only use their own people and their own coach group. Anything that crosses coaches needs an admin
+  account. Everything is checked before the first cell is written.
 
 ## Lokasi CG tab
 

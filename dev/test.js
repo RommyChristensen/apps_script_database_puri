@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -642,7 +642,9 @@ console.log('Restructure.gs');
 function withCoachColumn(values) {
   const v = clone(values);
   let coach = '';
+  const width = Math.max(...v.map((r) => r.length));
   v.forEach((r, i) => {
+    while (r.length < width) r.push('');
     const banner = /^COACH\s+(.+)$/i.exec(r[0] || '');
     if (banner) coach = banner[1].charAt(0) + banner[1].slice(1).toLowerCase();
     r.push(i === 3 ? 'COACH' : i > 4 && r[2] ? coach : '');
@@ -731,6 +733,78 @@ test('admin sets LDP for a coach (Coach → Team Leader); the coach cannot', () 
   assert.strictEqual(res.progress[0].stepLabel, 'Team Leader');
   assert.throws(() => s.raw.saveLdp(s.token, { id: angieRow.id, name: angieRow.name, targets: { tl: '2027-06-30' } }), /tidak punya akses/);
   assert.strictEqual(s.raw.getLdpProgress(s.token).progress.length, 1, 'Angie sees the entry about herself');
+});
+
+console.log('Multiply.gs');
+function mSetup(as) {
+  const s = boot(withCoachColumn(base), { accounts: coachAccounts(), as: as || ['angie', 'angie-pass'], geocode: GEO });
+  const admin = s.raw.login('admin', 'admin-pass').token;
+  const people = () => s.raw.getDashboardData(admin).people;
+  const H = s.grid[3];
+  const cell = (id, h) => s.grid[id - 1][H.indexOf(h)];
+  const ref = (p) => ({ id: p.id, name: p.name });
+  return { s, admin, people, cell, ref };
+}
+
+test('multiplikasi moves members + leader, promotes the leader and records everything', () => {
+  const { s, people, cell, ref } = mSetup();
+  const src = people().filter((x) => x.coach === 'Angie' && x.cg);
+  const cg = src[0].cg;
+  const inCg = src.filter((x) => x.cg === cg);
+  const leader = inCg.find((x) => x.position === 'MEMBER' || x.position === 'SPONSOR');
+  const movers = inCg.filter((x) => x !== leader && x.position !== 'CGL').slice(0, 2);
+  const res = s.raw.multiplyCg(s.token, {
+    sourceCg: cg, newCg: 'aog 23', coach: 'Angie', date: '2026-11-20', leader: ref(leader), members: movers.map(ref),
+    cgTime: 'Sabtu 15.00', cgStatus: 'Onsite', cgArea: 'Kembangan',
+    location: { place: 'Rumah leader', address: 'Kembangan' },
+  });
+  assert.strictEqual(res.newCg, 'AOG 23');
+  [leader].concat(movers).forEach((p) => {
+    assert.strictEqual(cell(p.id, 'NO CG'), 'AOG 23');
+    assert.strictEqual(cell(p.id, 'CGL'), leader.name);
+    assert.strictEqual(cell(p.id, 'WAKTU CG'), 'Sabtu 15.00');
+  });
+  assert.strictEqual(cell(leader.id, 'POSISI'), 'CGL');
+  assert.strictEqual(cell(leader.id, 'TGL JD CGL'), '20 November 2026');
+  const ldp = s.raw.getLdpProgress(s.token).progress[0];
+  assert.deepStrictEqual([ldp.name, ldp.stepLabel, ldp.result], [leader.name, 'CGL', 'berhasil']);
+  const loc = s.raw.getCgLocations(s.token).cgs.find((c) => c.code === 'AOG 23');
+  assert.ok(loc && loc.lat === -6.1902 && loc.place === 'Rumah leader');
+  const h = res.history[0];
+  assert.deepStrictEqual([h.source, h.newCg, h.coach, h.leader, h.count], [cg, 'AOG 23', 'Angie', leader.name, 2]);
+  assert.ok(res.data.people.filter((x) => x.cg === 'AOG 23').length === 3);
+});
+
+test('multiplikasi validation happens before anything is written', () => {
+  const { s, people, ref } = mSetup();
+  const src = people().filter((x) => x.coach === 'Angie' && x.cg && !x.isCoach);
+  const cg = src[0].cg;
+  const leader = src.find((x) => x.position !== 'CGL');
+  const base = { sourceCg: cg, newCg: 'AOG 30', coach: 'Angie', date: '2026-11-20', leader: ref(leader), members: [] };
+  const before = JSON.stringify(s.grid);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { newCg: src[0].cg })), /sudah dipakai/);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { newCg: 'CG' })), /tidak valid/);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { coach: 'Carla' })), /coach kamu sendiri/);
+  const carla = people().find((x) => x.coach === 'Carla' && !x.isCoach);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { members: [ref(carla)] })), /lintas coach hanya bisa oleh admin/);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { location: { address: 'Tempat yang tidak ada' } })), /tidak ketemu/);
+  assert.throws(() => s.raw.multiplyCg(s.token, Object.assign({}, base, { leader: { id: leader.id, name: 'Orang lain' } })), /sudah berubah/);
+  assert.strictEqual(JSON.stringify(s.grid), before, 'sheet untouched');
+});
+
+test('admin can multiply across coaches; an existing CGL is not demoted', () => {
+  const { s, admin, people, cell, ref } = mSetup();
+  const all = people();
+  const cglCarla = all.find((x) => x.coach === 'Carla' && x.position === 'CGL');
+  const angieMember = all.find((x) => x.coach === 'Angie' && x.position === 'MEMBER');
+  s.raw.multiplyCg(admin, { sourceCg: angieMember.cg, newCg: 'TEEN 20', coach: 'David', date: '2026-11-21',
+    leader: ref(cglCarla), members: [ref(angieMember)], cgStatus: 'Online' });
+  assert.strictEqual(cell(cglCarla.id, 'POSISI'), 'CGL');
+  assert.strictEqual(cell(angieMember.id, 'COACH'), 'David');
+  assert.strictEqual(cell(angieMember.id, 'CGL'), cglCarla.name);
+  assert.strictEqual(s.raw.getLdpProgress(admin).progress.length, 0, 'no LDP entry when already CGL');
+  assert.strictEqual(s.raw.getMultiplications(s.token).history.length, 0, 'Angie does not see David\'s new CG history');
+  assert.strictEqual(s.raw.getMultiplications(admin).history.length, 1);
 });
 
 const csv = process.argv[2];

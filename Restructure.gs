@@ -166,7 +166,10 @@ function cgInfoOf_(members, key) {
   return best;
 }
 
-const ROW_FIELD_LABELS_ = { cg: 'NO CG', cgl: 'CGL', coach: 'COACH', cgTime: 'Waktu CG', cgStatus: 'Status CG', cgArea: 'Daerah CG' };
+const ROW_FIELD_LABELS_ = {
+  cg: 'NO CG', cgl: 'CGL', coach: 'COACH', cgTime: 'Waktu CG', cgStatus: 'Status CG', cgArea: 'Daerah CG',
+  position: 'Posisi', dateCgl: 'Tgl jadi CGL',
+};
 
 /**
  * Writes { field: value } to one row (only cells that change, never over a
