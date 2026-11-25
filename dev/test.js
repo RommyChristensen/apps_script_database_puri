@@ -905,43 +905,68 @@ test('multiplikasi / pindah CG to another coach also updates TL', () => {
 });
 
 console.log('Visi.gs');
-test('visi: coach writes their own, numbers counted from the database, milestones snapshot', () => {
+test('visi: only TL / admin write; numbers and per-coach contribution come from the database', () => {
   const { s, angie, people, admin } = vSetup();
   const own = (coach) => people().filter((p) => p.coach === coach && !p.isCoach && p.cg && !/^non/i.test(p.status));
-  const want = { people: own('Angie').length, cgs: new Set(own('Angie').map((p) => p.cg)).size, sponsors: own('Angie').filter((p) => p.position === 'SPONSOR').length };
-  let res = s.raw.saveVisi(angie, { text: 'Puri dipenuhi CG yang sehat', people: 60, cgs: 8, sponsors: 12, date: '2027-12-31' });
+  const count = (list) => ({ people: list.length, cgs: new Set(list.map((p) => p.cg)).size, sponsors: list.filter((p) => p.position === 'SPONSOR').length });
+  const angieNow = count(own('Angie'));
+  assert.throws(() => s.raw.saveVisi(angie, { text: 'Visi Angie sendiri', people: 60, cgs: 8, sponsors: 12, date: '2027-12-31' }), /Hanya TL atau admin/);
+  assert.strictEqual(s.raw.getVisi(angie).canCreate, false);
+  let res = s.raw.saveVisi(s.token, { text: 'Puri dipenuhi CG yang sehat', people: 300, cgs: 30, sponsors: 40, date: '2027-12-31' });
   const v = res.visions[0];
-  assert.deepStrictEqual([v.owner, v.role, v.target.people, v.target.date], ['Angie', 'Coach', 60, '2027-12-31']);
-  assert.deepStrictEqual(clone(v.base), want);
-  assert.deepStrictEqual(clone(v.now), want);
-  assert.throws(() => s.raw.saveVisi(angie, { owner: 'Carla', role: 'Coach', text: 'Visi orang lain', people: 1, cgs: 1, sponsors: 1, date: '2027-01-01' }), /tidak bisa menulis/);
-  assert.throws(() => s.raw.saveVisi(angie, { text: 'Visi besar', people: 0, cgs: 1, sponsors: 1, date: '2027-01-01' }), /target jumlah jiwa/);
-  res = s.raw.addVisiMilestone(angie, { visiId: v.id, date: '2026-11-20', note: 'AOG 23 lahir' });
-  const m = res.visions[0].milestones[0];
-  assert.deepStrictEqual([m.note, m.people, m.cgs, m.sponsors], ['AOG 23 lahir', want.people, want.cgs, want.sponsors]);
-  assert.throws(() => s.raw.addVisiMilestone(angie, { visiId: v.id, date: '2099-01-01', note: 'nanti' }), /masa depan/);
-  // TL Rommy sees Angie's visi and can add a milestone; TL Budi cannot
-  assert.strictEqual(s.raw.getVisi(s.token).visions.length, 1);
-  s.raw.addVisiMilestone(s.token, { visiId: v.id, date: '2026-11-21', note: 'Dicek TL' });
+  assert.deepStrictEqual([v.owner, v.role, v.canEdit], ['Rommy Christensen', 'TL', true]);
+  assert.deepStrictEqual(clone(v.contributions.map((c) => c.coach)).sort(), ['Angie', 'Carla']);
+  assert.deepStrictEqual(clone(v.contributions.find((c) => c.coach === 'Angie').base), angieNow);
+  // coach Angie: read-only, only her own contribution line
+  const seen = s.raw.getVisi(angie);
+  assert.strictEqual(seen.visions.length, 1);
+  assert.strictEqual(seen.visions[0].canEdit, false);
+  assert.strictEqual(seen.me, 'Angie');
+  assert.deepStrictEqual(clone(seen.visions[0].contributions), [{ coach: 'Angie', now: angieNow, base: angieNow }]);
+  assert.throws(() => s.raw.addVisiMilestone(angie, { visiId: v.id, date: '2026-11-20', note: 'Coba' }), /Hanya TL atau admin/);
+  assert.throws(() => s.raw.deleteVisi(angie, v.id), /Hanya TL atau admin/);
+  // milestone by TL: totals, and the coach sees her own snapshot
+  res = s.raw.addVisiMilestone(s.token, { visiId: v.id, date: '2026-11-20', note: 'AOG 23 lahir' });
+  assert.strictEqual(res.visions[0].milestones[0].people, angieNow.people + count(own('Carla')).people);
+  assert.deepStrictEqual(clone(s.raw.getVisi(angie).visions[0].milestones[0].mine), angieNow);
+  assert.throws(() => s.raw.addVisiMilestone(s.token, { visiId: v.id, date: '2099-01-01', note: 'nanti' }), /masa depan/);
+  // another TL doesn't see it
   const budi = s.raw.login('budi', 'budi-pass').token;
   assert.strictEqual(s.raw.getVisi(budi).visions.length, 0);
-  assert.throws(() => s.raw.addVisiMilestone(budi, { visiId: v.id, date: '2026-11-21', note: 'x x x' }), /tidak bisa menulis/);
-  // admin sees it, deleting removes the milestones too
-  assert.strictEqual(s.raw.getVisi(admin).visions[0].milestones.length, 2);
+  // admin sees it; deleting removes the milestones too
+  assert.strictEqual(s.raw.getVisi(admin).visions[0].milestones.length, 1);
   s.raw.deleteVisi(admin, v.id);
   assert.strictEqual(s.raw.getVisi(admin).visions.length, 0);
   assert.strictEqual(s.mocks.spreadsheet.getSheetByName('Visi Milestone').getLastRow(), 1);
 });
 
-test('visi: TL visi counts all coaches under the TL; admin can write for anyone', () => {
-  const { s, admin, people } = vSetup();
-  const under = people().filter((p) => (p.coach === 'Angie' || p.coach === 'Carla') && !p.isCoach && p.cg && !/^non/i.test(p.status));
-  const v = s.raw.saveVisi(s.token, { text: 'Visi TL Rommy', people: 300, cgs: 30, sponsors: 40, date: '2028-06-30' }).visions[0];
-  assert.deepStrictEqual([v.owner, v.role, v.now.people], ['Rommy Christensen', 'TL', under.length]);
+test('visi: TL writes a visi for one of their coaches; other coaches do not see it', () => {
+  const { s, admin, angie } = vSetup();
   const owners = s.raw.getVisi(s.token).owners.map((o) => o.role + ':' + o.name);
   assert.deepStrictEqual(clone(owners).sort(), ['Coach:Angie', 'Coach:Carla', 'TL:Rommy Christensen']);
-  const forBudi = s.raw.saveVisi(admin, { owner: 'Budi', role: 'TL', text: 'Visi TL Budi', people: 100, cgs: 10, sponsors: 10, date: '2028-01-01' });
-  assert.ok(forBudi.visions.some((x) => x.owner === 'Budi' && x.role === 'TL'));
+  s.raw.saveVisi(s.token, { owner: 'Carla', role: 'Coach', text: 'Visi untuk Coach Carla', people: 90, cgs: 10, sponsors: 15, date: '2027-06-30' });
+  assert.strictEqual(s.raw.getVisi(angie).visions.length, 0, 'Angie does not see the visi about Carla');
+  s.raw.saveVisi(s.token, { owner: 'Angie', role: 'Coach', text: 'Visi untuk Coach Angie', people: 90, cgs: 10, sponsors: 15, date: '2027-06-30' });
+  const mine = s.raw.getVisi(angie).visions;
+  assert.deepStrictEqual([mine.length, mine[0].owner, mine[0].contributions.length], [1, 'Angie', 1]);
+  assert.throws(() => s.raw.saveVisi(s.token, { owner: 'David', role: 'Coach', text: 'Bukan coach saya', people: 1, cgs: 1, sponsors: 1, date: '2027-01-01' }), /tidak bisa menulis/);
+  assert.ok(s.raw.saveVisi(admin, { owner: 'Budi', role: 'TL', text: 'Visi TL Budi', people: 100, cgs: 10, sponsors: 10, date: '2028-01-01' })
+    .visions.some((x) => x.owner === 'Budi' && x.role === 'TL'));
+});
+
+test('visi: a Visi tab from the previous version gets the new column and keeps working', () => {
+  const { s } = vSetup();
+  const old = ['ID', 'PEMILIK', 'PERAN', 'VISI', 'TARGET JIWA', 'TARGET CG', 'TARGET SPONSOR', 'TARGET TANGGAL',
+    'AWAL JIWA', 'AWAL CG', 'AWAL SPONSOR', 'DIBUAT OLEH', 'DIBUAT PADA', 'DIPERBARUI'];
+  const sh = s.mocks.spreadsheet.insertSheet('Visi');
+  sh.appendRow(old);
+  sh.appendRow(['VSOLD', 'Rommy Christensen', 'TL', 'Visi lama', '100', '10', '10', '2027-01-01', '50', '5', '5', 'rommy', '2026-01-01 10:00', '2026-01-01 10:00']);
+  let v = s.raw.getVisi(s.token).visions[0];
+  assert.deepStrictEqual([v.id, v.hasBaseByCoach, v.contributions[0].base], ['VSOLD', false, null]);
+  s.raw.saveVisi(s.token, { text: 'Visi baru', people: 200, cgs: 20, sponsors: 20, date: '2027-12-31' });
+  assert.strictEqual(sh._grid[0][14], 'AWAL PER COACH');
+  v = s.raw.getVisi(s.token).visions.find((x) => x.text === 'Visi baru');
+  assert.ok(v.hasBaseByCoach && v.contributions[0].base);
 });
 
 console.log('Swot.gs');

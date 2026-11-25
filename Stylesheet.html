@@ -957,7 +957,7 @@
   .vi-meter-foot .up { color: #15803d; } .vi-meter-foot .down { color: #b91c1c; }
   .vi-chart { margin: 0; }
   .vi-chart figcaption { font-size: 12px; font-weight: 800; color: var(--ink-2); margin-bottom: 6px; }
-  .vi-chart svg { width: 100%; height: 150px; display: block; overflow: visible; }
+  .vi-chart svg { width: 100%; height: auto; max-height: 190px; display: block; overflow: visible; }
   .vi-chart .grid { stroke: #e2e8f0; stroke-width: 1; vector-effect: non-scaling-stroke; }
   .vi-chart .target { stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
   .vi-chart .line { fill: none; stroke: var(--blue-600); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
@@ -1018,6 +1018,35 @@
   .sw-old summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--ink-2); padding: 4px 0; }
   .sw-old .sw-grid { margin-top: 8px; }
   @media (max-width: 640px) { .sw-grid { grid-template-columns: minmax(0, 1fr); } }
+
+
+  /* Visi: kontribusi */
+  .btn[hidden] { display: none; }
+  .vi-contrib { display: grid; gap: 10px; }
+  .vi-contrib h4 { margin: 0; font-size: 14px; color: var(--navy); }
+  .vi-contrib.mine { background: linear-gradient(135deg, #eff6ff, #f0f9ff); border: 1px solid #bfdbfe; border-radius: 16px; padding: 14px; }
+  .vi-share { height: 10px; border-radius: 999px; background: #dbeafe; overflow: hidden; }
+  .vi-share i { display: block; height: 100%; background: var(--blue-600); border-radius: 999px; transition: width .8s var(--ease-out); }
+  .vi-share-text { margin: 0; font-size: 13px; color: var(--ink-2); }
+  .vi-mine { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .vi-mine-item { background: #fff; border-radius: 12px; padding: 10px; display: grid; gap: 2px; }
+  .vi-mine-item span { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+  .vi-mine-item b { font-size: 22px; color: var(--navy); line-height: 1.1; }
+  .vi-mine-item small { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+  .vi-grow { font-weight: 800; color: var(--muted); }
+  .vi-grow.up { color: #15803d; } .vi-grow.down { color: #b91c1c; }
+  .vi-contrib-note { font-size: 11.5px; color: var(--muted); }
+  .vi-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .vi-table th { text-align: left; font-size: 11.5px; font-weight: 800; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .vi-table td { padding: 8px 10px; border-bottom: 1px solid #eef2f7; white-space: nowrap; }
+  .vi-table .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .vi-table .vi-coach { font-weight: 800; color: var(--navy); }
+  .vi-barcell { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+  .vi-barcell b { font-variant-numeric: tabular-nums; min-width: 26px; text-align: right; }
+  .vi-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--sky-50); overflow: hidden; }
+  .vi-bar i { display: block; height: 100%; background: var(--blue-600); border-radius: 4px; }
+  .vi-ms-mine { color: var(--blue-700); font-weight: 800; }
+  @media (max-width: 640px) { .vi-mine { grid-template-columns: minmax(0, 1fr); } }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

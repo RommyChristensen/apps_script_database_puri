@@ -62,6 +62,7 @@
     if (!box) return;
     if (!S.data) { box.innerHTML = '<div class="mt-empty">Memuat visi…</div>'; $('#visiChips').innerHTML = ''; return; }
     var vs = S.data.visions;
+    $('#newVisiBtn').hidden = !S.data.canCreate;
     var owners = {};
     vs.forEach(function (v) { owners[ownerKey(v)] = { role: v.role, owner: v.owner }; });
     var keys = Object.keys(owners).sort(function (a, b) { return (a[0] === 'T' ? 0 : 1) - (b[0] === 'T' ? 0 : 1) || a.localeCompare(b); });
@@ -75,7 +76,9 @@
     var list = vs.filter(function (v) { return !S.owner || ownerKey(v) === S.owner; });
     if (!list.length) {
       box.innerHTML = '<div class="mt-empty">' + IC.eye + '<b>Belum ada visi</b><span>' +
-        (S.data.owners.length ? 'Klik <b>Visi baru</b> untuk menuliskan visi dan targetnya.' : 'Akun ini belum punya coach / TL untuk ditulis visinya.') + '</span></div>';
+        (S.data.canCreate ? 'Klik <b>Visi baru</b> untuk menuliskan visi dan targetnya.'
+          : S.data.me ? 'TL kamu belum menuliskan visi. Nanti visinya dan kontribusi kamu tampil di sini.'
+          : 'Akun ini belum punya coach / TL untuk ditulis visinya.') + '</span></div>';
       return;
     }
     box.innerHTML = list.map(card).join('');
@@ -101,7 +104,8 @@
     v.milestones.forEach(function (m) { if (m.people != null) pts.push({ date: m.date, n: m.people, label: m.note }); });
     pts.push({ date: today(), n: v.now.people, label: 'Sekarang' });
     pts.sort(function (a, b) { return a.date.localeCompare(b.date); });
-    if (pts.length < 2) return '';
+    // Needs at least two different dates, otherwise there is no line to draw.
+    if (pts.length < 2 || pts[0].date === pts[pts.length - 1].date) return '';
     var W = 560, H = 150, L = 34, R = 12, T = 14, B = 24;
     var t0 = d(pts[0].date).getTime(), t1 = Math.max(d(pts[pts.length - 1].date).getTime(), t0 + 86400000);
     var max = Math.max(v.target.people || 0, Math.max.apply(null, pts.map(function (p) { return p.n; }))) * 1.1 || 1;
@@ -111,7 +115,7 @@
     var ty = y(v.target.people);
     var ticks = [0, Math.round(v.target.people / 2)];
     return '<figure class="vi-chart"><figcaption>Jiwa di CG dari waktu ke waktu</figcaption>' +
-      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Jiwa di CG: ' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Jiwa di CG: ' +
       esc(pts.map(function (p) { return shortDate(p.date) + ' ' + p.n; }).join(', ')) + '; target ' + v.target.people + '">' +
       ticks.map(function (n) { return '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(n) + '" y2="' + y(n) + '"/>' +
         '<text class="ax" x="' + (L - 6) + '" y="' + (y(n) + 3) + '" text-anchor="end">' + n + '</text>'; }).join('') +
@@ -129,6 +133,48 @@
       '</svg></figure>';
   }
 
+  function pctOf(a, b) { return b ? Math.round(a / b * 100) : 0; }
+  function growth(now, base) {
+    if (!base) return '';
+    var d = now - base;
+    return '<span class="vi-grow ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">' + (d > 0 ? '+' : '') + d + '</span>';
+  }
+
+  /**
+   * Kontribusi: a coach sees their own share of the visi (and growth since it
+   * started); TL / admin see every coach of a TL visi side by side.
+   */
+  function contribution(v) {
+    var list = v.contributions || [];
+    if (!list.length) return '';
+    var noBase = !v.hasBaseByCoach ? '<div class="vi-contrib-note">Pertumbuhan per coach tercatat untuk visi yang dibuat setelah fitur ini.</div>' : '';
+    if (S.data.me) {
+      var c = list[0];
+      var own = v.role === 'Coach';
+      var item = function (key, label) {
+        var n = c.now[key], total = v.now[key];
+        return '<div class="vi-mine-item"><span>' + label + '</span><b>' + n + '</b>' +
+          (own ? '<small>target ' + v.target[key] + '</small>' : '<small>' + pctOf(n, total) + '% dari ' + total + '</small>') +
+          (c.base ? '<small>' + growth(n, c.base[key]) + ' sejak visi dimulai</small>' : '') + '</div>';
+      };
+      return '<section class="vi-contrib mine"><h4>' + (own ? 'Progres kamu' : 'Kontribusi kamu') + '</h4>' +
+        (own ? '' : '<div class="vi-share"><i style="width:' + pctOf(c.now.people, v.now.people) + '%"></i></div>' +
+          '<p class="vi-share-text">Kamu menyumbang <b>' + pctOf(c.now.people, v.now.people) + '%</b> jiwa di visi ' + esc(ownerLabel(v.role, v.owner)) + '.</p>') +
+        '<div class="vi-mine">' + item('people', 'Jiwa di CG') + item('cgs', 'CG') + item('sponsors', 'Sponsor') + '</div>' + noBase + '</section>';
+    }
+    if (v.role !== 'TL' || list.length < 2) return '';
+    var max = Math.max.apply(null, list.map(function (c) { return c.now.people; }).concat([1]));
+    return '<section class="vi-contrib"><h4>Kontribusi per coach</h4><div class="table-scroll"><table class="vi-table"><thead><tr>' +
+      '<th>Coach</th><th>Jiwa</th><th class="num">Porsi</th><th class="num">CG</th><th class="num">Sponsor</th><th class="num">Sejak awal</th></tr></thead><tbody>' +
+      list.map(function (c) {
+        return '<tr><td class="vi-coach">' + esc(c.coach) + '</td>' +
+          '<td class="vi-barcell"><div class="vi-bar"><i style="width:' + (c.now.people / max * 100) + '%"></i></div><b>' + c.now.people + '</b></td>' +
+          '<td class="num">' + pctOf(c.now.people, v.now.people) + '%</td>' +
+          '<td class="num">' + c.now.cgs + '</td><td class="num">' + c.now.sponsors + '</td>' +
+          '<td class="num">' + (c.base ? growth(c.now.people, c.base.people) + ' jiwa' : '–') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' + noBase + '</section>';
+  }
+
   function card(v, i) {
     var late = v.target.date && v.target.date < today();
     var reached = METRICS.every(function (m) { return v.now[m.key] >= v.target[m.key]; });
@@ -143,6 +189,7 @@
         '<button type="button" class="icon-sm danger" title="Hapus visi" data-visi-del="' + esc(v.id) + '">' + IC.trash + '</button></div>' : '') + '</header>' +
       '<blockquote class="vi-text">' + esc(v.text) + '</blockquote>' +
       '<div class="vi-meters">' + METRICS.map(function (m) { return meter(m, v); }).join('') + '</div>' +
+      contribution(v) +
       chart(v) +
       '<div class="vi-ms-head"><h4>' + IC.flag + 'Milestone <span class="count">' + v.milestones.length + '</span></h4>' +
       (v.canEdit ? '<button type="button" class="btn sm primary" data-visi-ms="' + esc(v.id) + '">' + IC.plus + 'Tambah milestone</button>' : '') + '</div>' +
@@ -151,7 +198,9 @@
         var dl = prev && prev.people != null && m.people != null ? m.people - prev.people : null;
         return '<li><div class="vi-ms-date">' + esc(shortDate(m.date)) + '</div><div class="vi-ms-body"><p>' + esc(m.note) + '</p>' +
           '<div class="vi-ms-nums"><span>' + m.people + ' jiwa' + (dl ? ' <b class="' + (dl > 0 ? 'up' : 'down') + '">' + (dl > 0 ? '+' : '') + dl + '</b>' : '') + '</span>' +
-          '<span>' + m.cgs + ' CG</span><span>' + m.sponsors + ' sponsor</span><span class="by">' + esc(m.by) + '</span></div></div>' +
+          '<span>' + m.cgs + ' CG</span><span>' + m.sponsors + ' sponsor</span>' +
+          (m.mine && v.role === 'TL' ? '<span class="vi-ms-mine">Kamu: ' + m.mine.people + ' jiwa · ' + m.mine.cgs + ' CG · ' + m.mine.sponsors + ' sponsor</span>' : '') +
+          '<span class="by">' + esc(m.by) + '</span></div></div>' +
           (v.canEdit ? '<button type="button" class="icon-sm danger" title="Hapus milestone" data-visi-ms-del="' + esc(m.id) + '">' + IC.trash + '</button>' : '') + '</li>';
       }).join('') + '</ol>' +
         (ms.length > 3 ? '<button type="button" class="link-btn" data-visi-more="' + esc(v.id) + '">' + (open ? 'Tampilkan lebih sedikit' : 'Lihat semua ' + ms.length + ' milestone') + '</button>' : '')

@@ -163,17 +163,20 @@ the CG cards in the coach drawer and the CG page. The rule lives in `cgHealth` i
 
 ## Visi and Visi Milestone tabs
 
-- **Visi** menu: each coach and TL writes their vision with target jiwa in CG, number of CG, number of sponsors
-  and a target date (several visi per person are fine). Admin can write one for any coach or TL.
-- Progress is counted from the database, never typed: jiwa in a CG (not Non-Aktif), distinct CGs and sponsors,
-  for a coach their own rows, for a TL every row with their name in the TL column. The numbers at creation are
-  kept as AWAL.
-- **Tambah milestone**: date + note; the numbers of that moment are recorded with it, which draws the
-  jiwa-over-time line on the card.
-- Access: a coach sees and updates their own visi; a TL their own and those of their coaches; admin all.
+- **Visi** menu: only **TLs and admins** write a visi (text, target jiwa in CG, number of CG, number of sponsors,
+  target date) and add milestones. A TL writes for themselves or for a coach under them; admin for anyone.
+- **Coaches only read.** A coach sees the visi of their TL and any visi written about them, with
+  **Kontribusi kamu**: their own jiwa / CG / sponsor, their share of the visi's total, and their growth since
+  the visi started. In each milestone they also see their own numbers at that moment.
+- TL / admin see **Kontribusi per coach** on a TL visi: every coach's jiwa (bar), share, CG, sponsor and growth.
+- Numbers are counted from the database, never typed: jiwa in a CG (not Non-Aktif), distinct CGs and sponsors;
+  for a coach their own rows, for a TL every row with their name in the TL column.
+- **Tambah milestone**: date + note; the totals and the numbers per coach of that moment are stored with it.
 - Tabs (created automatically): **Visi** (ID, PEMILIK, PERAN, VISI, TARGET JIWA, TARGET CG, TARGET SPONSOR,
-  TARGET TANGGAL, AWAL JIWA, AWAL CG, AWAL SPONSOR, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI) and
-  **Visi Milestone** (ID, VISI ID, TANGGAL, CATATAN, JIWA, CG, SPONSOR, OLEH, DICATAT PADA).
+  TARGET TANGGAL, AWAL JIWA, AWAL CG, AWAL SPONSOR, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI, AWAL PER COACH) and
+  **Visi Milestone** (ID, VISI ID, TANGGAL, CATATAN, JIWA, CG, SPONSOR, OLEH, DICATAT PADA, PER COACH). The
+  PER COACH columns hold JSON; a tab from an older version gets them added automatically. Visi made before this
+  change have no per-coach start numbers, so their "sejak awal" shows –.
 
 ## TL column and the Visit CG tab
 

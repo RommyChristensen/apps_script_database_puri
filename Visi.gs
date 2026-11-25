@@ -16,17 +16,20 @@
  * recorded when the visi is created, and every milestone stores the numbers
  * at the moment it is recorded.
  *
- * Access: a coach works with their own visi, a TL with their own and those of
- * the coaches under them, admin with all (and can write one for anyone).
+ * Access: only TLs and admins write visi and milestones (a TL for themselves
+ * and the coaches under them, admin for anyone). A coach sees, read-only, the
+ * visi of their TL and visi written about them, with their own contribution:
+ * their share of the numbers now and their growth since the visi started
+ * (AWAL PER COACH / PER COACH hold the numbers per coach as JSON).
  */
 
 const VISI = {
   HEADERS: ['ID', 'PEMILIK', 'PERAN', 'VISI', 'TARGET JIWA', 'TARGET CG', 'TARGET SPONSOR', 'TARGET TANGGAL',
-    'AWAL JIWA', 'AWAL CG', 'AWAL SPONSOR', 'DIBUAT OLEH', 'DIBUAT PADA', 'DIPERBARUI'],
+    'AWAL JIWA', 'AWAL CG', 'AWAL SPONSOR', 'DIBUAT OLEH', 'DIBUAT PADA', 'DIPERBARUI', 'AWAL PER COACH'],
   KEYS: ['id', 'owner', 'role', 'text', 'tPeople', 'tCgs', 'tSponsors', 'tDate', 'bPeople', 'bCgs', 'bSponsors',
-    'by', 'at', 'updated'],
-  MS_HEADERS: ['ID', 'VISI ID', 'TANGGAL', 'CATATAN', 'JIWA', 'CG', 'SPONSOR', 'OLEH', 'DICATAT PADA'],
-  MS_KEYS: ['id', 'visiId', 'date', 'note', 'people', 'cgs', 'sponsors', 'by', 'at'],
+    'by', 'at', 'updated', 'bByCoach'],
+  MS_HEADERS: ['ID', 'VISI ID', 'TANGGAL', 'CATATAN', 'JIWA', 'CG', 'SPONSOR', 'OLEH', 'DICATAT PADA', 'PER COACH'],
+  MS_KEYS: ['id', 'visiId', 'date', 'note', 'people', 'cgs', 'sponsors', 'by', 'at', 'byCoach'],
   ROLES: ['Coach', 'TL'],
 };
 
@@ -71,6 +74,7 @@ function saveVisi(token, v) {
           Utilities.getUuid().replace(/-/g, '').slice(0, 4).toUpperCase(),
         owner: owner.name, role: owner.role, bPeople: String(base.people), bCgs: String(base.cgs),
         bSponsors: String(base.sponsors), by: session.username, at: now,
+        bByCoach: JSON.stringify(visiBreakdown_(people, owner.role, owner.name)),
       };
     }
     Object.assign(row, { text: text, tPeople: nums.people, tCgs: nums.cgs, tSponsors: nums.sponsors, tDate: date, updated: now });
@@ -125,7 +129,7 @@ function addVisiMilestone(token, m) {
       id: 'VM' + Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyMMddHHmmss') +
         Utilities.getUuid().replace(/-/g, '').slice(0, 4).toUpperCase(),
       visiId: visi.id, date: date, note: note, people: String(n.people), cgs: String(n.cgs), sponsors: String(n.sponsors),
-      by: session.username, at: visitNow_(),
+      by: session.username, at: visitNow_(), byCoach: JSON.stringify(visiBreakdown_(people, visi.role, visi.owner)),
     });
     SpreadsheetApp.flush();
     return visiPayload_(ss, session);
@@ -171,9 +175,36 @@ function visiCounts_(people, role, owner) {
   };
 }
 
-/** Whose visi this session may see and write: [{ name, role }]. */
+/** The numbers per coach inside a visi's scope: { coach: { people, cgs, sponsors } }. */
+function visiBreakdown_(people, role, owner) {
+  const coaches = {};
+  people.forEach(function (p) {
+    if (p.isLeader || !p.coach || p.coach === 'Unassigned') return;
+    if (role === 'TL' ? norm_(p.tl) === norm_(owner) : norm_(p.coach) === norm_(owner)) coaches[p.coach] = true;
+  });
+  const out = {};
+  Object.keys(coaches).forEach(function (c) { out[c] = visiCounts_(people, 'Coach', c); });
+  return out;
+}
+
+/** A coach sees the visi of their TL and visi about themselves; TL / admin see what they may write. */
+function visiVisible_(session, people, row, writable) {
+  if (session.role === 'ADMIN') return true;
+  if (writable[row.role + '|' + norm_(row.owner)]) return true;
+  if (session.role !== 'COACH') return false;
+  if (row.role === 'Coach') return norm_(row.owner) === norm_(session.coach);
+  const me = people.filter(function (p) { return !p.isLeader && norm_(p.coach) === norm_(session.coach); })[0];
+  return !!me && norm_(tlOfCoach_(people, me.coach)) === norm_(row.owner);
+}
+
+function parseJson_(s) {
+  try { const v = JSON.parse(s || ''); return v && typeof v === 'object' ? v : null; } catch (e) { return null; }
+}
+
+/** Whose visi this session may write (TL / admin only): [{ name, role }]. */
 function visiOwners_(session, people) {
   const out = [], seen = {};
+  if (!leadsCoaches_(session)) return out; // coaches only read
   const add = function (name, role) {
     const k = role + '|' + norm_(name);
     if (!name || seen[k]) return;
@@ -195,6 +226,7 @@ function visiOwner_(session, people, name, role) {
   role = VISI.ROLES.indexOf(role) >= 0 ? role : (session.role === 'TL' ? 'TL' : 'Coach');
   if (!name) name = session.role === 'ADMIN' ? '' : session.coach;
   const hit = visiOwners_(session, people).filter(function (o) { return o.role === role && norm_(o.name) === norm_(name); })[0];
+  if (!leadsCoaches_(session)) throw new Error('Hanya TL atau admin yang bisa mengisi visi dan milestone.');
   if (!hit) throw new Error('Kamu tidak bisa menulis visi untuk ' + (name || 'orang itu') + '.');
   return hit;
 }
@@ -212,6 +244,9 @@ function visiSheet_(ss, which, headers) {
     sheet.appendRow(headers);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  } else if (sheet.getLastColumn() < headers.length) {
+    // A tab from an older version: add the new header cells at the end.
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
   }
   return sheet;
 }
@@ -240,34 +275,52 @@ function writeRow_(sheet, keys, r) {
 function visiPayload_(ss, session) {
   const people = parseDatabase_(getDatabaseSheet_(ss).getDataRange().getDisplayValues()).people;
   const owners = visiOwners_(session, people);
-  const mine = {};
-  owners.forEach(function (o) { mine[o.role + '|' + norm_(o.name)] = true; });
+  const writable = {};
+  owners.forEach(function (o) { writable[o.role + '|' + norm_(o.name)] = true; });
+  const me = session.role === 'COACH' ? session.coach : '';
   const num = function (s) { return s === '' || isNaN(+s) ? null : +s; };
+  const mineOf = function (obj) {
+    if (!obj) return null;
+    const k = Object.keys(obj).filter(function (c) { return norm_(c) === norm_(me); })[0];
+    return k ? obj[k] : null;
+  };
 
   const msByVisi = {};
   readRows_(ss.getSheetByName(CONFIG.VISI_MILESTONE_SHEET_NAME), VISI.MS_HEADERS, VISI.MS_KEYS).forEach(function (m) {
     (msByVisi[m.visiId] = msByVisi[m.visiId] || []).push({
       id: m.id, date: toIsoDate_(m.date) || m.date, note: m.note,
       people: num(m.people), cgs: num(m.cgs), sponsors: num(m.sponsors), by: m.by, at: m.at,
+      mine: me ? mineOf(parseJson_(m.byCoach)) : null,
     });
   });
 
   const visions = readRows_(ss.getSheetByName(CONFIG.VISI_SHEET_NAME), VISI.HEADERS, VISI.KEYS)
-    .filter(function (r) { return session.role === 'ADMIN' || mine[r.role + '|' + norm_(r.owner)]; })
+    .filter(function (r) { return visiVisible_(session, people, r, writable); })
     .map(function (r) {
       const ms = (msByVisi[r.id] || []).sort(function (a, b) { return (a.date + a.at).localeCompare(b.date + b.at); });
+      const nowBy = visiBreakdown_(people, r.role, r.owner);
+      const baseBy = parseJson_(r.bByCoach) || {};
+      // A coach only receives their own line; TL / admin get every coach in the visi.
+      const contributions = Object.keys(nowBy)
+        .filter(function (c) { return !me || norm_(c) === norm_(me); })
+        .map(function (c) { return { coach: c, now: nowBy[c], base: baseBy[c] || null }; })
+        .sort(function (a, b) { return b.now.people - a.now.people || a.coach.localeCompare(b.coach); });
       return {
         id: r.id, owner: r.owner, role: r.role, text: r.text,
         target: { people: num(r.tPeople), cgs: num(r.tCgs), sponsors: num(r.tSponsors), date: toIsoDate_(r.tDate) || r.tDate },
         base: { people: num(r.bPeople), cgs: num(r.bCgs), sponsors: num(r.bSponsors) },
         now: visiCounts_(people, r.role, r.owner),
-        milestones: ms, by: r.by, at: r.at, updated: r.updated, canEdit: true,
+        contributions: contributions, hasBaseByCoach: !!r.bByCoach,
+        milestones: ms, by: r.by, at: r.at, updated: r.updated,
+        canEdit: session.role === 'ADMIN' || !!writable[r.role + '|' + norm_(r.owner)],
       };
     });
   visions.sort(function (a, b) { return (a.target.date || '').localeCompare(b.target.date || '') || a.owner.localeCompare(b.owner); });
   return {
     visions: visions,
     owners: owners.map(function (o) { return { name: o.name, role: o.role, now: visiCounts_(people, o.role, o.name) }; }),
+    me: me,
+    canCreate: owners.length > 0,
     today: Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd'),
   };
 }
