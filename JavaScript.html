@@ -166,15 +166,15 @@
   }
   // ───────────── CG health ─────────────
   var HEALTH = {
-    red: { label: 'Merah', order: 0 },
-    yellow: { label: 'Kuning', order: 1 },
-    green: { label: 'Hijau', order: 2 },
+    red: { label: 'Unhealthy', order: 0 },
+    yellow: { label: 'Growing', order: 1 },
+    green: { label: 'Healthy', order: 2 },
   };
   /**
    * Health of one CG (people of that CG; Non-Aktif don't count):
-   *   Merah  — no CGL, no sponsor, or fewer than 2 members
-   *   Hijau  — CGL, at least 2 sponsors and 4+ members (more than 11 = "Bisa multi")
-   *   Kuning — everything in between
+   *   Unhealthy (red)   — no CGL, no sponsor, or fewer than 2 members
+   *   Healthy (green)   — CGL, at least 2 sponsors and 4+ members (more than 11 = "Ready to Multiply")
+   *   Growing (yellow)  — everything in between
    * Members = POSISI MEMBER or SIMPATISAN.
    */
   function cgHealth(list) {
@@ -200,7 +200,7 @@
   }
   function healthBadge(h, withMulti) {
     return '<span class="hl-badge ' + h.level + '"><i></i>' + h.label + '</span>' +
-      (withMulti !== false && h.multi ? '<span class="hl-badge multi">' + ICON.arrow + 'Bisa multi</span>' : '');
+      (withMulti !== false && h.multi ? '<span class="hl-badge multi">' + ICON.arrow + 'Ready to Multiply</span>' : '');
   }
   /** Every real CG this session sees: [{ code, coach, cgl, people, health }]. */
   function healthList() {
@@ -219,8 +219,8 @@
     var scoped = all.filter(function (x) { return !coach || x.coach === coach; });
     var counts = { red: 0, yellow: 0, green: 0, multi: 0 };
     scoped.forEach(function (x) { counts[x.health.level]++; if (x.health.multi) counts.multi++; });
-    var chips = [['', 'Semua', scoped.length], ['red', 'Merah', counts.red], ['yellow', 'Kuning', counts.yellow],
-      ['green', 'Hijau', counts.green], ['multi', 'Bisa multi', counts.multi]];
+    var chips = [['', 'Semua', scoped.length], ['red', 'Unhealthy', counts.red], ['yellow', 'Growing', counts.yellow],
+      ['green', 'Healthy', counts.green], ['multi', 'Ready to Multiply', counts.multi]];
     $('#healthChips').innerHTML = chips.map(function (c) {
       return '<button class="chip hl-chip ' + (c[0] || 'all') + (f === c[0] ? ' active' : '') + '" data-health="' + c[0] + '">' +
         (c[0] && c[0] !== 'multi' ? '<i></i>' : '') + esc(c[1]) + '<span class="count">' + c[2] + '</span></button>';
@@ -435,7 +435,7 @@
         '<div class="cc-health">' + ['green', 'yellow', 'red'].map(function (k) {
           var n = c.cgs.filter(function (g) { return g.health.level === k; }).length;
           return '<span class="' + k + '"><i></i>' + n + ' ' + HEALTH[k].label + '</span>';
-        }).join('') + (c.cgs.some(function (g) { return g.health.multi; }) ? '<span class="multi">' + c.cgs.filter(function (g) { return g.health.multi; }).length + ' bisa multi</span>' : '') + '</div>' +
+        }).join('') + (c.cgs.some(function (g) { return g.health.multi; }) ? '<span class="multi">' + c.cgs.filter(function (g) { return g.health.multi; }).length + ' ready to multiply</span>' : '') + '</div>' +
         '<div class="cc-foot"><span>' + (c.counts.CGL || 0) + ' CGL · ' + (c.counts.SPONSOR || 0) + ' Sponsor</span><span>Growth ' + c.avg + '%' + (c.attendance != null ? ' · Hadir ' + c.attendance + '%' : '') + '</span></div>' +
         '</button>';
     }).join('') || '<div class="empty">Belum ada data.</div>';
