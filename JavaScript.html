@@ -597,7 +597,8 @@
         '<div class="cg-code">' + esc(g.code) + '</div><div style="min-width:0;flex:1">' +
         '<div class="cg-title">' + (g.cgl ? 'CGL ' + esc(g.cgl) : esc(g.code)) + (g.code !== 'Tanpa CG' ? ' ' + healthBadge(g.health) : '') + '</div>' +
         '<div class="cg-meta">' + meta.join('') + '</div></div>' +
-        (canOpen ? '<button class="btn sm cg-open-btn" data-cg-open="' + esc(g.code) + '">Lihat CG' + ICON.arrow + '</button>' : '') +
+        (canOpen ? '<div class="cg-card-btns">' + (window.AOGRestructure && can('edit') && canCoach(c.key) ? '<button class="btn sm cg-add-btn" data-rs-add="' + esc(g.code) + '" title="Tambah anggota ke ' + esc(g.code) + '" aria-label="Tambah anggota ke ' + esc(g.code) + '">+ Anggota</button>' : '') +
+          '<button class="btn sm cg-open-btn" data-cg-open="' + esc(g.code) + '">Lihat CG' + ICON.arrow + '</button></div>' : '') +
         '</div>' +
         '<div class="cg-members">' + g.people.map(miniPerson).join('') + '</div></div>';
     }).join('');

@@ -96,6 +96,15 @@ spreadsheet (File → Make a copy) copies the script with it and works on its ow
 own deployment (Deploy → New deployment) and its own accounts in the Authentication tab. Change
 `CONFIG.APP_TITLE` in `Code.gs` to the church's name.
 
+## Tambah anggota
+
+"+ Anggota" on a CG card in the coach drawer, or "Tambah anggota" on the CG page (needs the `edit` permission;
+coaches for their own CGs, TLs for their coaches, admins everywhere). Name, gender and position (VIP, Simpatisan,
+Member or Sponsor) are required; phone, birth date, domicile, campus / school and email are optional. The new row
+goes right after the CG's last member (formulas of the row above are copied). COACH, TL, CGL and the CG's
+schedule / status / area come from the CG, STATUS is Aktif and every 5M / MSJ / CGT column is "-". A name that
+already exists shows a warning first; "Tetap tambahkan" adds the person anyway. Every addition is in the Edit Log.
+
 ## Kelola pengguna (user management)
 
 Open it from the user menu (click your name in the top bar). Everyone also gets **Ganti password** there.

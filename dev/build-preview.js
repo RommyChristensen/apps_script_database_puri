@@ -130,7 +130,7 @@ function main() {
       getVisi: getVisi, saveVisi: saveVisi, deleteVisi: deleteVisi, addVisiMilestone: addVisiMilestone, deleteVisiMilestone: deleteVisiMilestone,
       getSwot: getSwot, saveSwot: saveSwot,
       getUsers: getUsers, saveUser: saveUser, setUserActive: setUserActive, resetUserPassword: resetUserPassword,
-      deleteUser: deleteUser, setDefaultPassword: setDefaultPassword, changePassword: changePassword };
+      deleteUser: deleteUser, setDefaultPassword: setDefaultPassword, changePassword: changePassword, addPerson: addPerson };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

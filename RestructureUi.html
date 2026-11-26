@@ -1,7 +1,7 @@
 <script>
-/* "Pindah CG" (move a person to another CG) and "Hapus" (admin only: archive
-   to the Arsip Jemaat tab, then delete; needs the admin's password).
-   Opened from the buttons in a person's profile. Talks to Restructure.gs. */
+/* "Tambah anggota" (new person in a CG), "Pindah CG" (move a person to another
+   CG) and "Hapus" (archive to the Arsip Jemaat tab, then delete; needs the
+   user's password). Talks to Restructure.gs. */
 (function () {
   'use strict';
   var A = window.AOG;
@@ -13,7 +13,9 @@
     trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
     warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
     search: '<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    add: '<svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M19 8v6M16 11h6"/></svg>',
   };
+  var POSITIONS_NEW = [['VIP', 'VIP'], ['SIMPATISAN', 'Simpatisan'], ['MEMBER', 'Member'], ['SPONSOR', 'Sponsor']];
 
   var R = { mode: '', p: null, target: '', q: '', reason: '', password: '', busy: false };
 
@@ -96,6 +98,93 @@
     }, fail);
   }
 
+  // ───────────── Tambah anggota ─────────────
+  /** CGs this user may add people to: [{ code, coach, cgl }]. */
+  function addableCgs() {
+    var by = {};
+    (A.state.people || []).forEach(function (x) {
+      if (x.isCoach || !x.cg || !A.canCoach(x.coach)) return;
+      (by[x.cg] = by[x.cg] || []).push(x);
+    });
+    return Object.keys(by).map(function (code) {
+      var cgl = by[code].filter(function (x) { return x.position === 'CGL'; })[0];
+      return { code: code, coach: by[code][0].coach, cgl: cgl ? cgl.name : '' };
+    }).sort(function (a, b) { return a.coach.localeCompare(b.coach) || a.code.localeCompare(b.code, 'id', { numeric: true }); });
+  }
+
+  function openAdd(cg) {
+    var list = addableCgs();
+    if (!list.length) { A.toast('Belum ada CG yang bisa ditambah anggota.'); return; }
+    R = { mode: 'add', p: null, busy: false, dupes: null,
+      f: { cg: cg && list.some(function (c) { return c.code === cg; }) ? cg : list[0].code, name: '', position: 'VIP', gender: '',
+        phone: '', birthDate: '', domicile: '', school: '', email: '' } };
+    renderAdd();
+    show();
+    setTimeout(function () { var el = $('#rsName'); if (el) el.focus(); }, 280);
+  }
+
+  function addOk() { return R.f.name.trim().length >= 2 && !!R.f.gender && !!R.f.cg; }
+
+  function renderAdd() {
+    var f = R.f, list = addableCgs();
+    var groups = {};
+    list.forEach(function (c) { (groups[c.coach] = groups[c.coach] || []).push(c); });
+    var places = {}, schools = {};
+    (A.state.people || []).forEach(function (x) { if (x.domicile) places[x.domicile] = 1; if (x.school) schools[x.school] = 1; });
+    var cur = list.filter(function (c) { return c.code === f.cg; })[0];
+    var dupe = R.dupes ? '<div class="rs-warn">' + IC.warn + '<span>' + (R.dupes.list.length
+        ? 'Nama yang sama sudah ada: ' + R.dupes.list.map(function (d) { return '<b>' + esc(d.name) + '</b> (' + esc([d.cg || 'tanpa CG', 'Coach ' + d.coach].join(', ')) + ')'; }).join(', ') + '.'
+        : 'Nama yang sama sudah ada di data coach lain.') +
+      ' Kalau memang orang yang berbeda, klik <b>Tetap tambahkan</b>.</span></div>' : '';
+    var chip = function (attr, val, label, on) {
+      return '<button type="button" class="chip' + (on ? ' active' : '') + '" ' + attr + '="' + val + '">' + esc(label) + '</button>';
+    };
+    $('#rsModal').innerHTML =
+      '<div class="m-head"><div class="m-head-row"><div class="avatar lg rs-add">' + IC.add + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">Tambah anggota</div>' +
+      '<div class="m-sub">' + esc(cur ? cur.code + (cur.cgl ? ' · CGL ' + cur.cgl : '') + ' · Coach ' + cur.coach : 'Pilih CG') + '</div></div>' +
+      '<button class="close-btn dark" data-rs-close aria-label="Tutup">' + IC.close + '</button></div></div>' +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field wide"><label for="rsName">Nama lengkap</label><input id="rsName" maxlength="80" autocomplete="off" value="' + esc(f.name) + '" placeholder="mis. Joshua Tan"></div>' +
+      '<div class="field"><label for="rsCg">CG</label><select id="rsCg" class="mul-select">' + Object.keys(groups).map(function (k) {
+        return '<optgroup label="Coach ' + esc(k) + '">' + groups[k].map(function (c) {
+          return '<option value="' + esc(c.code) + '"' + (c.code === f.cg ? ' selected' : '') + '>' + esc(c.code + (c.cgl ? ' · ' + c.cgl : '')) + '</option>';
+        }).join('') + '</optgroup>';
+      }).join('') + '</select></div>' +
+      '<div class="field"><label>Gender</label><div class="chips seg tight">' + chip('data-rs-gender', 'Male', 'Laki-laki', f.gender === 'Male') + chip('data-rs-gender', 'Female', 'Perempuan', f.gender === 'Female') + '</div></div>' +
+      '<div class="field wide"><label>Posisi</label><div class="chips seg tight">' + POSITIONS_NEW.map(function (p) { return chip('data-rs-pos', p[0], p[1], f.position === p[0]); }).join('') + '</div></div>' +
+      '<div class="field"><label for="rsPhone">No HP <span class="opt">opsional</span></label><input id="rsPhone" type="tel" inputmode="tel" maxlength="20" value="' + esc(f.phone) + '" placeholder="08…"></div>' +
+      '<div class="field"><label for="rsBirth">Tanggal lahir <span class="opt">opsional</span></label><input id="rsBirth" type="date" value="' + esc(f.birthDate) + '"></div>' +
+      '<div class="field"><label for="rsDom">Domisili (kecamatan) <span class="opt">opsional</span></label><input id="rsDom" list="rsDoms" maxlength="80" value="' + esc(f.domicile) + '">' +
+      '<datalist id="rsDoms">' + Object.keys(places).sort().map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field"><label for="rsSchool">Kampus / sekolah <span class="opt">opsional</span></label><input id="rsSchool" list="rsSchools" maxlength="80" value="' + esc(f.school) + '">' +
+      '<datalist id="rsSchools">' + Object.keys(schools).sort().map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field wide"><label for="rsEmail">Email <span class="opt">opsional</span></label><input id="rsEmail" type="email" maxlength="120" value="' + esc(f.email) + '"></div>' +
+      '</div>' + dupe +
+      '<div class="hint soft rs-add-hint">Coach, TL, CGL, jadwal dan daerah CG terisi otomatis dari CG-nya. Status: Aktif. Data lain bisa dilengkapi lewat Edit.</div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="rsErr"></span><button type="button" class="btn" data-rs-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="rsGo"' + (addOk() ? '' : ' disabled') + '><span class="spin"></span>' + IC.add +
+      '<span id="rsGoLabel">' + (R.dupes ? 'Tetap tambahkan' : 'Tambahkan') + '</span></button></div>';
+  }
+
+  function doAdd() {
+    if (R.busy || !addOk()) return;
+    var f = R.f;
+    busy(true, 'Menyimpan…');
+    A.api('addPerson', Object.assign({ force: !!R.dupes }, f)).then(function (res) {
+      R.busy = false;
+      if (res.duplicates) {
+        R.dupes = { list: res.duplicates };
+        renderAdd();
+        return;
+      }
+      close();
+      A.applyData(res.data);
+      A.toast(res.added.name + ' ditambahkan ke ' + res.added.cg + ' ✨');
+      if (A.openPerson) setTimeout(function () { A.openPerson(res.added.id); }, 250);
+    }, fail);
+  }
+
   // ───────────── Hapus ─────────────
   function openDelete(p) {
     R = { mode: 'delete', p: p, reason: '', password: '', busy: false };
@@ -145,7 +234,7 @@
     var btn = $('#rsGo');
     if (!btn) return;
     btn.classList.remove('loading');
-    $('#rsGoLabel').textContent = R.mode === 'move' ? 'Pindahkan ke ' + R.target : 'Hapus & arsipkan';
+    $('#rsGoLabel').textContent = R.mode === 'move' ? 'Pindahkan ke ' + R.target : R.mode === 'add' ? (R.dupes ? 'Tetap tambahkan' : 'Tambahkan') : 'Hapus & arsipkan';
     $('#rsErr').textContent = A.errText(err);
     if (R.mode === 'delete') { R.password = ''; $('#rsPassword').value = ''; $('#rsPassword').focus(); updateDeleteBtn(); }
     else btn.disabled = false;
@@ -153,12 +242,17 @@
 
   document.addEventListener('click', function (e) {
     var t = e.target, el;
+    if ((el = t.closest('[data-rs-add]'))) return openAdd(el.dataset.rsAdd);
     if ((el = t.closest('[data-rs-move]'))) { var p = A.state.byId[+el.dataset.rsMove]; return p && openMove(p); }
     if ((el = t.closest('[data-rs-delete]'))) { var d = A.state.byId[+el.dataset.rsDelete]; return d && openDelete(d); }
     if (!R.mode) return;
     if (t.closest('[data-rs-close]')) return close();
     if ((el = t.closest('[data-rs-target]'))) { R.target = el.dataset.rsTarget; return renderMove(); }
-    if (t.closest('#rsGo')) return R.mode === 'move' ? doMove() : doDelete();
+    if (t.closest('#rsGo')) return R.mode === 'move' ? doMove() : R.mode === 'add' ? doAdd() : doDelete();
+    if (R.mode === 'add') {
+      if ((el = t.closest('[data-rs-gender]'))) { R.f.gender = el.dataset.rsGender; return renderAdd(); }
+      if ((el = t.closest('[data-rs-pos]'))) { R.f.position = el.dataset.rsPos; return renderAdd(); }
+    }
   });
 
   document.addEventListener('input', function (e) {
@@ -169,6 +263,14 @@
       var s = $('#rsSearch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length);
     }
     if (e.target.id === 'rsReason') { R.reason = e.target.value; updateDeleteBtn(); }
+    if (R.mode === 'add') {
+      var map = { rsName: 'name', rsPhone: 'phone', rsBirth: 'birthDate', rsDom: 'domicile', rsSchool: 'school', rsEmail: 'email' };
+      if (map[e.target.id]) {
+        R.f[map[e.target.id]] = e.target.value;
+        if (e.target.id === 'rsName' && R.dupes) { R.dupes = null; $('#rsGoLabel').textContent = 'Tambahkan'; var w = $('#rsModal .rs-warn'); if (w) w.remove(); }
+        $('#rsGo').disabled = R.busy || !addOk();
+      }
+    }
     if (e.target.id === 'rsPassword') { R.password = e.target.value; updateDeleteBtn(); }
   });
 
@@ -178,7 +280,12 @@
     if (e.key === 'Enter' && e.target.id === 'rsPassword') { e.preventDefault(); doDelete(); }
   }, true);
 
+  document.addEventListener('change', function (e) {
+    if (R.mode === 'add' && e.target.id === 'rsCg') { R.f.cg = e.target.value; R.dupes = null; renderAdd(); }
+  });
+
   window.AOGRestructure = {
+    add: openAdd,
     reset: function () { R.busy = false; close(); },
   };
 })();

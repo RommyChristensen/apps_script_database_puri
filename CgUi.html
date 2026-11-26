@@ -129,6 +129,7 @@
         return '<div class="cg-health">' + A.healthBadge(h) + h.reasons.map(function (r) { return '<span class="cg-health-why">' + esc(r) + '</span>'; }).join('') + '</div>';
       })() +
       (canEdit(list) ? '<div class="cg-hero-actions"><button class="btn cg-edit-btn" data-cg-edit>' + IC.edit + 'Ubah info CG</button>' +
+        (window.AOGRestructure && A.can('edit') ? '<button class="btn cg-edit-btn" data-rs-add="' + esc(C.code) + '">' + IC.users + 'Tambah anggota</button>' : '') +
         (window.AOGVisits ? '<button class="btn cg-edit-btn" data-visit-plan="' + esc(C.code) + '">' + IC.clock + 'Jadwalkan visit</button>' : '') +
         (window.AOGMultiply ? '<button class="btn cg-edit-btn" data-mul-open="' + esc(C.code) + '">' + IC.sprout + 'Multiplikasi</button>' : '') + '</div>' : '') + '</div>' +
       '<div class="hero-stats">' + stats.map(function (s) {
@@ -270,7 +271,7 @@
   // ───────────── events ─────────────
   document.addEventListener('click', function (e) {
     var t = e.target, el;
-    if ((el = t.closest('[data-cg-open]')) && !t.closest('[data-person], [data-loc-show]')) return open(el.dataset.cgOpen);
+    if ((el = t.closest('[data-cg-open]')) && !t.closest('[data-person], [data-loc-show], [data-rs-add]')) return open(el.dataset.cgOpen);
     if (t.closest('[data-cg-back]')) return back();
     if (t.closest('[data-cg-edit]')) return openForm();
     if ((el = t.closest('[data-cg-tab]'))) { C.tab = el.dataset.cgTab; return render(); }

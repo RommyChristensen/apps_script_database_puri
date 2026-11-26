@@ -42,6 +42,7 @@
             getFormulas: function () { return cells(function (ri, ci) { return formulas[ri + ',' + ci] || ''; }); },
             setNumberFormat: function () { return this; },
             setFontWeight: function () { return this; },
+            copyTo: function (dest) { return this; },
             setValues: function (vals) {
               for (var i = 0; i < vals.length; i++) {
                 while (grid.length < r + i) grid.push([]);
@@ -60,6 +61,7 @@
         },
         appendRow: function (row) { grid.push(row.slice()); return sheet; },
         deleteRow: function (n) { grid.splice(n - 1, 1); return sheet; },
+        insertRowAfter: function (n) { grid.splice(n, 0, []); return sheet; },
         setFrozenRows: function () { return sheet; },
       };
       return sheet;

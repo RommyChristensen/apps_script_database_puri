@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, getUsers, saveUser, setUserActive, resetUserPassword, deleteUser, setDefaultPassword, changePassword, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, getUsers, saveUser, setUserActive, resetUserPassword, deleteUser, setDefaultPassword, changePassword, addPerson, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -985,6 +985,47 @@ test('SWOT: TL writes for their coaches, coach reads only, versions are kept', (
   assert.strictEqual(s.raw.saveSwot(s.token, { coach: 'Angie', s: 'Hangat, dekat dengan CGL', w: 'Kurang rapi administrasi', o: 'Banyak mahasiswa baru', t: 'Jadwal kuliah padat' }).unchanged, true);
   res = s.raw.saveSwot(admin, { coach: 'Angie', s: 'Hangat', w: 'Administrasi', o: 'Mahasiswa baru', t: 'Kuliah' });
   assert.deepStrictEqual([res.current.s, res.current.role, res.history.length, res.history[0].s], ['Hangat', 'Admin', 1, 'Hangat, dekat dengan CGL']);
+});
+
+console.log('addPerson');
+test('add member: row right after the CG, filled from the CG, milestones "-"', () => {
+  const { s, angie, people } = vSetup();
+  const cg = people().find((p) => p.coach === 'Angie' && !p.isCoach && p.cg).cg;
+  const last = Math.max(...people().filter((p) => p.cg === cg && !p.isCoach).map((p) => p.id));
+  const before = s.grid.length;
+  const res = s.raw.addPerson(angie, { cg, name: 'joshua  tan', position: 'VIP', gender: 'Male', phone: '0812-3456-7890', birthDate: '2008-03-14', school: 'UPH' });
+  assert.strictEqual(res.added.id, last + 1);
+  assert.strictEqual(s.grid.length, before + 1);
+  const H = s.grid[3], row = s.grid[last];
+  const at = (h) => row[H.indexOf(h)];
+  assert.deepStrictEqual([at('NAMA'), at('NO CG'), at('COACH'), at('TL'), at('POSISI'), at('STATUS'), at('GENDER'), at('NO HP'), at('TTL'), at('KAMPUS')],
+    ['Joshua Tan', cg, 'Angie', 'Rommy Christensen', 'VIP', 'Aktif', 'Male', '081234567890', '14 March 2008', 'UPH']);
+  const p = res.data.people.find((x) => x.id === last + 1);
+  assert.ok(p && p.name === 'Joshua Tan' && p.cg === cg);
+  assert.ok(Object.values(p.milestones).every((v) => v === false));
+  const msCol = s.grid[4].indexOf('PERCAYA YESUS');
+  if (msCol >= 0) assert.strictEqual(row[msCol], '-');
+  // the next person is still found under their new row number
+  const after = res.data.people.find((x) => x.id === last + 2);
+  if (after) assert.ok(after.name);
+});
+
+test('add member: duplicate names warn first, access and input are checked', () => {
+  const { s, angie, people } = vSetup();
+  const mine = people().find((p) => p.coach === 'Angie' && !p.isCoach && p.cg);
+  const carlaCg = people().find((p) => p.coach === 'Carla' && !p.isCoach && p.cg).cg;
+  const before = s.grid.length;
+  const dup = s.raw.addPerson(angie, { cg: mine.cg, name: mine.name.toLowerCase(), gender: 'Female' });
+  assert.ok(dup.duplicates.length === 1 && dup.duplicates[0].id === mine.id);
+  assert.strictEqual(s.grid.length, before, 'nothing written');
+  s.raw.addPerson(angie, { cg: mine.cg, name: mine.name, gender: 'Female', force: true });
+  assert.strictEqual(s.grid.length, before + 1);
+  assert.throws(() => s.raw.addPerson(angie, { cg: carlaCg, name: 'Orang Baru', gender: 'Male' }), /coach kamu/);
+  assert.throws(() => s.raw.addPerson(angie, { cg: mine.cg, name: 'Orang Baru', gender: 'Male', position: 'CGL' }), /Posisi/);
+  assert.throws(() => s.raw.addPerson(angie, { cg: mine.cg, name: 'Orang Baru' }), /gender/);
+  assert.throws(() => s.raw.addPerson(angie, { cg: mine.cg, name: 'Orang Baru', gender: 'Male', phone: '12' }), /No HP/);
+  // TL can add to any CG under them
+  assert.ok(s.raw.addPerson(s.token, { cg: carlaCg, name: 'Teman Carla', gender: 'Male' }).added);
 });
 
 console.log('Users.gs');

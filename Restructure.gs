@@ -82,6 +82,78 @@ function movePerson(token, req) {
   });
 }
 
+/**
+ * Adds a new person to a CG, as a row right after the CG's last member.
+ * req = { cg, name, position, gender, phone?, birthDate? (yyyy-mm-dd), domicile?, school?, email?, force? }
+ * COACH, TL, CGL and the CG's schedule come from the CG; STATUS = Aktif; milestones = "-".
+ * Without `force`, a person with the same name returns { duplicates } and nothing is written.
+ */
+function addPerson(token, req) {
+  const ss = getSpreadsheet_();
+  const session = requireSession_(token, ss);
+  requirePerm_(session, 'edit');
+  if (!req) throw new Error('Data anggota baru tidak valid.');
+  const clean = function (v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); };
+  const name = clean(req.name, 80).replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  if (name.length < 2) throw new Error('Isi nama lengkap.');
+  const position = clean(req.position, 20).toUpperCase() || 'VIP';
+  if (ADD_POSITIONS.indexOf(position) < 0) throw new Error('Posisi untuk anggota baru: ' + ADD_POSITIONS.join(', ') + '.');
+  const gender = clean(req.gender, 10);
+  if (['Male', 'Female'].indexOf(gender) < 0) throw new Error('Pilih gender.');
+  const phone = clean(req.phone, 20).replace(/[^\d+]/g, '');
+  if (phone && !/^\+?\d{8,15}$/.test(phone)) throw new Error('No HP tidak valid.');
+  const email = clean(req.email, 120);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Email tidak valid.');
+  const birth = req.birthDate ? toIsoDate_(req.birthDate) : '';
+  if (req.birthDate && !birth) throw new Error('Tanggal lahir tidak valid.');
+  const code = cgCode_(req.cg);
+  if (!code) throw new Error('Pilih CG.');
+
+  return withScriptLock_(function () {
+    const db = readDatabase_(ss);
+    const members = db.people.filter(function (p) { return p.cg === code && !p.isCoach; });
+    if (!members.length) throw new Error('CG "' + code + '" tidak ditemukan.');
+    if (!canAccessCoach_(session, members[0].coach)) throw new Error('Kamu hanya bisa menambah anggota ke CG milik coach kamu.');
+
+    if (!req.force) {
+      const dupes = db.people.filter(function (p) { return norm_(p.name) === norm_(name) && canAccessCoach_(session, p.coach); })
+        .map(function (p) { return { id: p.id, name: p.name, cg: p.cg, coach: p.coach, position: p.position }; });
+      const hidden = db.people.some(function (p) { return norm_(p.name) === norm_(name) && !canAccessCoach_(session, p.coach); });
+      if (dupes.length || hidden) return { duplicates: dupes, elsewhere: hidden && !dupes.length };
+    }
+
+    // Insert after the CG's last row; copy formulas of that row (e.g. % KEHADIRAN) so they keep working.
+    const after = Math.max.apply(null, members.map(function (p) { return p.id; }));
+    db.sheet.insertRowAfter(after);
+    const row = after + 1;
+    const above = db.formulas[after - 1] || [];
+    above.forEach(function (f, j) { if (f) db.sheet.getRange(after, j + 1).copyTo(db.sheet.getRange(row, j + 1)); });
+
+    const cgl = members.filter(function (p) { return p.position === 'CGL'; })[0];
+    const want = {
+      name: name, cg: code, coach: members[0].coach, tl: tlOfCoach_(db.people, members[0].coach),
+      cgl: cgl ? cgl.name : cgInfoOf_(members, 'cgl'), position: position, status: 'Aktif', gender: gender,
+      phone: phone, email: email, birthDate: birth ? longDate_(birth) : '', domicile: clean(req.domicile, 80),
+      school: clean(req.school, 80),
+    };
+    CG_INFO_FIELDS.forEach(function (k) { want[k] = cgInfoOf_(members, k); });
+    MILESTONES.forEach(function (m) { want[m.key] = '-'; });
+    Object.keys(want).forEach(function (k) {
+      const j = db.col[k];
+      if (j === undefined || want[k] === '' || above[j]) return;
+      const cell = db.sheet.getRange(row, j + 1);
+      cell.setNumberFormat('@');
+      cell.setValue(want[k]);
+    });
+    SpreadsheetApp.flush();
+    logEdit_(ss, row, name, [{ label: 'Anggota baru', from: '', to: code + ' · ' + position }], session);
+    return { added: { id: row, name: name, cg: code }, data: buildDashboard_(ss, session) };
+  });
+}
+
+/** Positions a new person can start with (CGL comes through promotion or Multiplikasi). */
+const ADD_POSITIONS = ['VIP', 'SIMPATISAN', 'MEMBER', 'SPONSOR'];
+
 /** Admin only: archives the row, then deletes it. req = { id, name, reason, password } */
 function deletePerson(token, req) {
   const ss = getSpreadsheet_();
