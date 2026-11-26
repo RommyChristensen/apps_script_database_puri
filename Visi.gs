@@ -204,7 +204,7 @@ function parseJson_(s) {
 /** Whose visi this session may write (TL / admin only): [{ name, role }]. */
 function visiOwners_(session, people) {
   const out = [], seen = {};
-  if (!leadsCoaches_(session)) return out; // coaches only read
+  if (!leadsCoaches_(session) || !hasPerm_(session, 'visi')) return out; // coaches only read
   const add = function (name, role) {
     const k = role + '|' + norm_(name);
     if (!name || seen[k]) return;
@@ -227,12 +227,13 @@ function visiOwner_(session, people, name, role) {
   if (!name) name = session.role === 'ADMIN' ? '' : session.coach;
   const hit = visiOwners_(session, people).filter(function (o) { return o.role === role && norm_(o.name) === norm_(name); })[0];
   if (!leadsCoaches_(session)) throw new Error('Hanya TL atau admin yang bisa mengisi visi dan milestone.');
+  requirePerm_(session, 'visi');
   if (!hit) throw new Error('Kamu tidak bisa menulis visi untuk ' + (name || 'orang itu') + '.');
   return hit;
 }
 
 function requireVisiOwner_(session, people, name, role) {
-  if (session.role === 'ADMIN') return;
+  if (session.role === 'ADMIN') return requirePerm_(session, 'visi');
   visiOwner_(session, people, name, role);
 }
 
@@ -312,7 +313,7 @@ function visiPayload_(ss, session) {
         now: visiCounts_(people, r.role, r.owner),
         contributions: contributions, hasBaseByCoach: !!r.bByCoach,
         milestones: ms, by: r.by, at: r.at, updated: r.updated,
-        canEdit: session.role === 'ADMIN' || !!writable[r.role + '|' + norm_(r.owner)],
+        canEdit: !!writable[r.role + '|' + norm_(r.owner)] || (session.role === 'ADMIN' && hasPerm_(session, 'visi')),
       };
     });
   visions.sort(function (a, b) { return (a.target.date || '').localeCompare(b.target.date || '') || a.owner.localeCompare(b.owner); });

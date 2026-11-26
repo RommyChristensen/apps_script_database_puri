@@ -12,8 +12,13 @@
  * - Type a password in plain text. After its first successful login it is
  *   replaced by a salted SHA-256 hash (sha256$<salt>$<hex>), so the tab never
  *   keeps readable passwords. To reset a password, type a new one over it.
- * - Clearing PASSWORD, or setting ROLE to NONAKTIF, disables an account.
+ * - Clearing PASSWORD, setting ROLE to NONAKTIF or STATUS to NONAKTIF disables an account.
  * - Changing a password (or role/coach) signs that user out everywhere.
+ * - Optional columns (added automatically by the "Kelola pengguna" page, see Users.gs):
+ *   CATATAN | STATUS (AKTIF/NONAKTIF) | IZIN (empty = role default, "-" = none,
+ *   else e.g. "edit,restructure") | WAJIB GANTI (YA = must set a new password
+ *   before using the app) | TERAKHIR LOGIN | DIPERBARUI OLEH
+ * - Logging in with the default password (set by an admin) also forces a change.
  *
  * Sessions are random tokens kept in the script cache for SESSION_HOURS
  * (sliding: every request extends it). After MAX_FAILED wrong passwords a
@@ -25,7 +30,44 @@ const AUTH = {
   MAX_FAILED: 5,
   LOCK_MINUTES: 15,
   HEADERS: ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'],
+  ALL_HEADERS: ['USERNAME', 'PASSWORD', 'COACH', 'ROLE', 'CATATAN', 'STATUS', 'IZIN', 'WAJIB GANTI', 'TERAKHIR LOGIN',
+    'DIPERBARUI OLEH'],
+  MIN_PASSWORD: 8,
 };
+
+/**
+ * Feature permissions. `roles`: who can be given it; `def`: who has it when IZIN
+ * is empty. ADMIN always has everything (so an admin can never lock themselves out).
+ */
+const PERMS = [
+  { key: 'edit', label: 'Edit data jemaat & LDP', roles: ['COACH', 'TL', 'ADMIN'], def: ['COACH', 'TL', 'ADMIN'] },
+  { key: 'restructure', label: 'Pindah CG, multiplikasi, info & lokasi CG', roles: ['COACH', 'TL', 'ADMIN'], def: ['COACH', 'TL', 'ADMIN'] },
+  { key: 'delete', label: 'Hapus data jemaat (diarsipkan)', roles: ['COACH', 'TL', 'ADMIN'], def: ['ADMIN'] },
+  { key: 'visi', label: 'Isi Visi & SWOT coach', roles: ['TL', 'ADMIN'], def: ['TL', 'ADMIN'] },
+  { key: 'users', label: 'Kelola pengguna', roles: ['TL', 'ADMIN'], def: ['TL', 'ADMIN'] },
+];
+
+/** Effective permission keys of an account (or session-like { role, permsRaw }). */
+function permsOf_(role, raw) {
+  if (role === 'ADMIN') return PERMS.map(function (p) { return p.key; });
+  raw = String(raw == null ? '' : raw).trim().toLowerCase();
+  const list = raw === '' ? null : raw === '-' ? [] : raw.split(/[\s,;]+/);
+  return PERMS.filter(function (p) {
+    if (p.roles.indexOf(role) < 0) return false;
+    return list ? list.indexOf(p.key) >= 0 : p.def.indexOf(role) >= 0;
+  }).map(function (p) { return p.key; });
+}
+
+function hasPerm_(session, key) {
+  return (session.perms || permsOf_(session.role, '')).indexOf(key) >= 0;
+}
+
+/** Throws a friendly error when the session lacks a permission. */
+function requirePerm_(session, key) {
+  if (hasPerm_(session, key)) return;
+  const p = PERMS.filter(function (x) { return x.key === key; })[0];
+  throw new Error('Akun kamu tidak punya izin "' + (p ? p.label : key) + '". Hubungi admin atau TL kamu.');
+}
 
 /** Thrown for anything that should send the browser back to the login screen. */
 function authError_(msg) {
@@ -44,7 +86,7 @@ function readAccounts_(ss) {
   const values = sheet.getDataRange().getDisplayValues();
   const header = (values[0] || []).map(norm_);
   const c = {};
-  AUTH.HEADERS.forEach(function (h) { c[h] = header.indexOf(h); });
+  AUTH.ALL_HEADERS.forEach(function (h) { c[h] = header.indexOf(h); });
   if (c.USERNAME < 0 || c.PASSWORD < 0) {
     throw new Error('Tab "' + CONFIG.AUTH_SHEET_NAME + '" harus punya kolom USERNAME dan PASSWORD di baris 1.');
   }
@@ -59,6 +101,12 @@ function readAccounts_(ss) {
       stored: String(values[i][c.PASSWORD] || ''),
       coach: c.COACH >= 0 ? titleCase_(String(values[i][c.COACH] || '').trim()) : '',
       role: c.ROLE >= 0 ? (norm_(values[i][c.ROLE]) || 'COACH') : 'COACH',
+      status: c.STATUS >= 0 ? (norm_(values[i][c.STATUS]) || 'AKTIF') : 'AKTIF',
+      permsRaw: c.IZIN >= 0 ? String(values[i][c.IZIN] || '').trim() : '',
+      mustChange: c['WAJIB GANTI'] >= 0 ? /^(YA|Y|YES|TRUE|1)$/i.test(String(values[i][c['WAJIB GANTI']] || '').trim()) : false,
+      note: c.CATATAN >= 0 ? String(values[i][c.CATATAN] || '').trim() : '',
+      lastLogin: c['TERAKHIR LOGIN'] >= 0 ? String(values[i][c['TERAKHIR LOGIN']] || '').trim() : '',
+      updatedBy: c['DIPERBARUI OLEH'] >= 0 ? String(values[i][c['DIPERBARUI OLEH']] || '').trim() : '',
     });
   }
   return out;
@@ -95,7 +143,13 @@ function accountStamp_(acc) {
 }
 
 function isUsable_(acc) {
-  return acc && acc.stored && acc.role !== 'NONAKTIF' && (acc.role === 'ADMIN' || acc.coach);
+  return acc && acc.stored && acc.role !== 'NONAKTIF' && acc.status !== 'NONAKTIF' && (acc.role === 'ADMIN' || acc.coach);
+}
+
+/** True when the typed password is the current default password (see Users.gs). */
+function isDefaultPassword_(typed) {
+  const stored = PropertiesService.getScriptProperties().getProperty('AUTH_DEFAULT_PW');
+  return !!stored && passwordMatches_(typed, stored);
 }
 
 /** Called from the login form. Returns { token, user } or throws. */
@@ -128,11 +182,71 @@ function login(username, password) {
     acc = Object.assign({}, acc, { stored: hashed });
   }
 
+  const mustChange = acc.mustChange || isDefaultPassword_(password);
+  try { setAuthCells_(ss, acc.row, { 'TERAKHIR LOGIN': Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm') }); } catch (e) { /* not essential */ }
+
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  const session = { username: acc.username, coach: acc.coach, role: acc.role, stamp: accountStamp_(acc) };
+  const session = { username: acc.username, coach: acc.coach, role: acc.role, stamp: accountStamp_(acc), mustChange: mustChange };
   cache.put('session:' + token, JSON.stringify(session), AUTH.SESSION_HOURS * 3600);
+  session.perms = permsOf_(acc.role, acc.permsRaw);
   if (session.role === 'TL') session.coaches = tlCoaches_(ss, session.coach);
-  return { token: token, user: publicUser_(session) };
+  return { token: token, user: publicUser_(session), mustChange: mustChange };
+}
+
+/**
+ * Sets a new password for the signed-in user. When the session must change
+ * its password (default password / reset by admin) the current one isn't asked
+ * again. req = { current?, next }
+ */
+function changePassword(token, req) {
+  const ss = getSpreadsheet_();
+  const session = requireSession_(token, ss, { allowPwChange: true });
+  const next = String(req && req.next || '');
+  const acc = readAccounts_(ss).filter(function (a) { return a.username === session.username; })[0];
+  if (!session.mustChange) confirmPassword_(ss, session, req && req.current, 'Password lama salah.');
+  if (next.length < AUTH.MIN_PASSWORD) throw new Error('Password baru minimal ' + AUTH.MIN_PASSWORD + ' karakter.');
+  if (next.toLowerCase() === session.username) throw new Error('Password tidak boleh sama dengan username.');
+  if (isDefaultPassword_(next)) throw new Error('Password baru tidak boleh sama dengan password default.');
+  if (passwordMatches_(next, acc.stored)) throw new Error('Password baru harus berbeda dari yang lama.');
+
+  const hashed = hashPassword_(next, Utilities.getUuid().replace(/-/g, '').slice(0, 16));
+  setAuthCells_(ss, acc.row, { PASSWORD: hashed, 'WAJIB GANTI': '', 'DIPERBARUI OLEH': session.username + ' · ' + Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm') });
+  SpreadsheetApp.flush();
+  // Keep this session (its stamp follows the new password); other devices are signed out.
+  const fresh = Object.assign({}, acc, { stored: hashed });
+  const stored = { username: session.username, coach: session.coach, role: session.role, stamp: accountStamp_(fresh), mustChange: false };
+  CacheService.getScriptCache().put('session:' + token, JSON.stringify(stored), AUTH.SESSION_HOURS * 3600);
+  session.mustChange = false;
+  return { user: publicUser_(session) };
+}
+
+/** Writes { HEADER: value } on one row of the Authentication tab (adds missing columns). */
+function setAuthCells_(ss, row, values) {
+  const sheet = getAuthSheet_(ss);
+  const col = ensureAuthColumns_(sheet);
+  Object.keys(values).forEach(function (h) {
+    const cell = sheet.getRange(row, col[h] + 1);
+    cell.setNumberFormat('@');
+    cell.setValue(values[h]);
+  });
+}
+
+/** Makes sure every AUTH.ALL_HEADERS column exists (new ones go at the end). Returns { HEADER: index }. */
+function ensureAuthColumns_(sheet) {
+  const width = Math.max(sheet.getLastColumn(), 1);
+  const header = sheet.getRange(1, 1, 1, width).getDisplayValues()[0].map(norm_);
+  const col = {};
+  let next = header.length;
+  while (next > 0 && !header[next - 1]) next--;
+  AUTH.ALL_HEADERS.forEach(function (h) {
+    let j = header.indexOf(h);
+    if (j < 0) {
+      j = next++;
+      sheet.getRange(1, j + 1).setValue(h).setFontWeight('bold');
+    }
+    col[h] = j;
+  });
+  return col;
 }
 
 function logout(token) {
@@ -144,6 +258,7 @@ function publicUser_(s) {
   return {
     username: s.username, coach: s.coach, role: s.role || 'COACH',
     isAdmin: s.role === 'ADMIN', isTl: s.role === 'TL', coaches: s.role === 'TL' ? (s.coaches || []) : undefined,
+    perms: s.perms || permsOf_(s.role, ''),
   };
 }
 
@@ -151,7 +266,7 @@ function publicUser_(s) {
  * Resolves a token to its session, re-checking the account in the sheet so a
  * changed password, role or coach takes effect immediately. Throws AUTH: errors.
  */
-function requireSession_(token, ss) {
+function requireSession_(token, ss, opts) {
   if (!token || typeof token !== 'string') throw authError_('Silakan masuk dulu.');
   const cache = CacheService.getScriptCache();
   const raw = cache.get('session:' + token);
@@ -162,7 +277,11 @@ function requireSession_(token, ss) {
     cache.remove('session:' + token);
     throw authError_('Akun berubah atau dinonaktifkan. Silakan masuk lagi.');
   }
+  if (s.mustChange && !(opts && opts.allowPwChange)) {
+    throw new Error('PWCHANGE: Buat password baru dulu sebelum melanjutkan.');
+  }
   cache.put('session:' + token, raw, AUTH.SESSION_HOURS * 3600); // sliding expiry
+  s.perms = permsOf_(acc.role, acc.permsRaw);
   if (s.role === 'TL') s.coaches = tlCoaches_(ss, s.coach);
   return s;
 }

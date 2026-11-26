@@ -33,6 +33,7 @@ function getMultiplications(token) {
 function multiplyCg(token, req) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
+  requirePerm_(session, 'restructure');
   if (!req) throw new Error('Data multiplikasi tidak valid.');
   const admin = session.role === 'ADMIN';
 

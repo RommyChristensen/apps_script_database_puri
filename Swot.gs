@@ -33,6 +33,7 @@ function saveSwot(token, v) {
   if (!v) throw new Error('Data SWOT tidak valid.');
   const coach = swotCoach_(ss, session, v.coach);
   if (!leadsCoaches_(session)) throw new Error('Hanya TL atau admin yang bisa mengisi SWOT coach.');
+  requirePerm_(session, 'visi');
   const clean = {};
   SWOT.FIELDS.forEach(function (k) { clean[k] = visitText_(v[k], SWOT.MAX); });
   if (!SWOT.FIELDS.some(function (k) { return clean[k]; })) throw new Error('Isi minimal satu bagian SWOT.');
@@ -81,5 +82,5 @@ function swotPayload_(ss, session, coach) {
     .filter(function (r) { return norm_(r.coach) === norm_(coach); })
     .sort(function (a, b) { return b.row - a.row; }) // newest version = last row in the tab
     .map(function (r) { return { id: r.id, s: r.s, w: r.w, o: r.o, t: r.t, by: r.by, role: r.role, at: r.at }; });
-  return { coach: coach, current: versions[0] || null, history: versions.slice(1), canEdit: leadsCoaches_(session) };
+  return { coach: coach, current: versions[0] || null, history: versions.slice(1), canEdit: leadsCoaches_(session) && hasPerm_(session, 'visi') };
 }

@@ -67,6 +67,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `VisiUi.html` | Visi menu, progress meters and milestone timeline |
 | `Swot.gs` | SWOT of each coach (written by TL / admin, with history) |
 | `SwotUi.html` | SWOT tab in the coach drawer |
+| `Users.gs` | Kelola pengguna: accounts, permissions, default password, revoke |
+| `UsersUi.html` | User menu, Pengguna page, forced / voluntary password change |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -79,8 +81,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits`, `Visi` and `Swot`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi`, `VisiUi` and `SwotUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits`, `Visi`, `Swot` and `Users`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi`, `VisiUi`, `SwotUi` and `UsersUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -93,6 +95,34 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 spreadsheet (File → Make a copy) copies the script with it and works on its own data, but every copy needs its
 own deployment (Deploy → New deployment) and its own accounts in the Authentication tab. Change
 `CONFIG.APP_TITLE` in `Code.gs` to the church's name.
+
+## Kelola pengguna (user management)
+
+Open it from the user menu (click your name in the top bar). Everyone also gets **Ganti password** there.
+
+- **Admins** manage every account; **TLs** (permission "Kelola pengguna") manage the COACH accounts of their own
+  coaches and can only hand out permissions they have themselves.
+- **Create**: username, role (COACH / TL / ADMIN), the coach or TL name (as written in the database), permissions,
+  note. The first password is the **default password**.
+- **Default password** (admin): set once on the page. It is stored only as a salted hash in Script Properties
+  (`AUTH_DEFAULT_PW`), never in the sheet. New accounts and "Reset password" receive it.
+- **First login**: whoever signs in with the default password (or after a reset) must create a new password
+  (min. 8 characters, not the username, not the default) before the dashboard opens.
+- **Revoke**: STATUS = NONAKTIF; the user is signed out at their next request and can be re-activated.
+  Admins can also delete an account. The last active admin can't be demoted, revoked or deleted.
+- **Permissions** (column IZIN; empty = the role's defaults, `-` = read-only):
+
+| Key | Allows | Default for |
+| --- | --- | --- |
+| `edit` | Edit data jemaat, status, LDP | Coach, TL, Admin |
+| `restructure` | Pindah CG, Multiplikasi, info & lokasi CG | Coach, TL, Admin |
+| `delete` | Hapus data jemaat (archived, own coach group) | Admin |
+| `visi` | Visi & SWOT (TL / admin only) | TL, Admin |
+| `users` | Kelola pengguna (TL / admin only) | TL, Admin |
+
+  Admins always have everything. Pertemuan and Visit CG are open to every account.
+- The page adds these columns to the Authentication tab when needed: CATATAN, STATUS, IZIN, WAJIB GANTI,
+  TERAKHIR LOGIN, DIPERBARUI OLEH.
 
 ## Dark mode
 

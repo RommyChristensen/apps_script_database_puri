@@ -1,0 +1,428 @@
+<script>
+/* Accounts & passwords (talks to Users.gs and changePassword in Auth.gs):
+   - forced "new password" step on the login card (default password / reset)
+   - user menu in the top bar: Ganti password, Kelola pengguna
+   - Pengguna page: list, create / edit (role, coach / TL, permissions),
+     reset password, revoke / re-activate, delete (admin), default password (admin). */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var SHORT = { edit: 'Edit', restructure: 'Struktur CG', delete: 'Hapus', visi: 'Visi & SWOT', users: 'Pengguna' };
+  var ROLE_LABEL = { ADMIN: 'Admin', TL: 'TL', COACH: 'Coach' };
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    lock: '<svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    key: '<svg class="i" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    off: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
+    on: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    user: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+    warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+  };
+
+  var U = { data: null, loading: false, filter: 'all', q: '', f: null, forcedUser: null };
+
+  function me() { return (A.state.data && A.state.data.user) || U.forcedUser || {}; }
+
+  // ───────────── forced password change (login card) ─────────────
+  function forceChange(user) {
+    U.forcedUser = user || U.forcedUser || {};
+    document.body.classList.add('signed-out');
+    var screen = $('#authScreen');
+    screen.classList.remove('checking', 'leaving');
+    $('#loginForm').hidden = true;
+    $('#authFoot').hidden = true;
+    $('#pwForm').hidden = false;
+    $('#pwHello').innerHTML = '<b>Halo' + (U.forcedUser.coach ? ' ' + esc(U.forcedUser.coach) : '') + '!</b> ' +
+      'Kamu masih memakai password sementara. Buat password baru dulu untuk melanjutkan.';
+    $('#pwNew').value = ''; $('#pwNew2').value = ''; $('#pwError').textContent = '';
+    checkRules();
+    setTimeout(function () { $('#pwNew').focus(); }, 60);
+  }
+  function endForced() {
+    $('#pwForm').hidden = true;
+    $('#loginForm').hidden = false;
+    $('#authFoot').hidden = false;
+    U.forcedUser = null;
+  }
+  function checkRules() {
+    var a = $('#pwNew').value, b = $('#pwNew2').value;
+    var uname = String(me().username || '').toLowerCase();
+    var ok = { len: a.length >= 8, same: !!a && a === b, user: !!a && a.toLowerCase() !== uname };
+    $$('#pwRules li').forEach(function (li) { li.classList.toggle('ok', ok[li.dataset.rule]); });
+    $('#pwBtn').disabled = !(ok.len && ok.same && ok.user);
+    return ok.len && ok.same && ok.user;
+  }
+  $('#pwForm').addEventListener('input', checkRules);
+  $('#pwForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!checkRules()) return;
+    var btn = $('#pwBtn');
+    btn.disabled = true; btn.classList.add('loading'); $('#pwLabel').textContent = 'Menyimpan…';
+    A.api('changePassword', { next: $('#pwNew').value }).then(function () {
+      btn.classList.remove('loading'); $('#pwLabel').textContent = 'Simpan & lanjut';
+      endForced();
+      A.load(false);
+      setTimeout(function () { A.toast('Password baru tersimpan ✨'); }, 600);
+    }, function (err) {
+      btn.classList.remove('loading'); $('#pwLabel').textContent = 'Simpan & lanjut';
+      if (err.isAuth && String(A.errText(err)).indexOf('PWCHANGE') < 0) return;
+      $('#pwError').textContent = A.errText(err).replace(/^.*PWCHANGE:\s*/, '');
+      checkRules();
+    });
+  });
+  $('#pwOut').addEventListener('click', function () {
+    endForced();
+    A.signOut('');
+  });
+
+  // ───────────── user menu ─────────────
+  function toggleMenu(open) {
+    var m = $('#userMenu');
+    open = open == null ? m.hidden : open;
+    m.hidden = !open;
+    $('#userMenuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) $('#userMenuUsers').hidden = !A.can('users');
+  }
+
+  // ───────────── voluntary password change ─────────────
+  function show() { $('#usrModalWrap').classList.add('open'); $('#usrModalWrap').setAttribute('aria-hidden', 'false'); A.updateLock(); }
+  function closeModal() {
+    if (U.f && U.f.saving) return;
+    U.f = null;
+    $('#usrModalWrap').classList.remove('open');
+    $('#usrModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+  function head(icon, title, sub) {
+    return '<div class="m-head"><div class="m-head-row"><div class="avatar lg usr-avatar">' + icon + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div><div class="m-sub">' + esc(sub) + '</div></div>' +
+      '<button class="close-btn dark" data-usr-close aria-label="Tutup">' + IC.close + '</button></div></div>';
+  }
+  function footer(label, ok, danger) {
+    return '<div class="m-footer"><span class="ldp-err" id="usrErr"></span><button type="button" class="btn" data-usr-close>Batal</button>' +
+      '<button type="button" class="btn ' + (danger ? 'danger-btn solid' : 'primary') + '" id="usrSave"' + (ok ? '' : ' disabled') + '><span class="spin"></span>' +
+      IC.on + '<span id="usrSaveLabel">' + esc(label) + '</span></button></div>';
+  }
+
+  function openPassword() {
+    U.f = { mode: 'password', saving: false };
+    $('#usrModal').innerHTML = head(IC.lock, 'Ganti password', 'Akun ' + (me().username || '')) +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field wide"><label for="usrCur">Password sekarang</label><input id="usrCur" type="password" autocomplete="current-password"></div>' +
+      '<div class="field"><label for="usrNew">Password baru</label><input id="usrNew" type="password" autocomplete="new-password"></div>' +
+      '<div class="field"><label for="usrNew2">Ulangi password baru</label><input id="usrNew2" type="password" autocomplete="new-password"></div>' +
+      '</div><div class="hint soft usr-hint">Minimal 8 karakter. Setelah diganti, sesi di perangkat lain akan keluar.</div></div>' +
+      footer('Simpan password', false);
+    show();
+    setTimeout(function () { $('#usrCur').focus(); }, 250);
+  }
+
+  // ───────────── Pengguna page ─────────────
+  function load() {
+    if (U.loading) return;
+    U.loading = true;
+    if (!U.data) render();
+    A.api('getUsers').then(function (res) { U.loading = false; U.data = res; render(); }, function (err) {
+      U.loading = false;
+      if (err.isAuth) return;
+      $('#usrList').innerHTML = '<div class="mt-empty"><b>Tidak bisa memuat pengguna</b><span>' + esc(A.errText(err)) + '</span></div>';
+    });
+  }
+
+  function permChips(u) {
+    if (u.role === 'ADMIN') return '<span class="usr-perm all">Semua izin</span>';
+    if (!u.perms.length) return '<span class="usr-perm none">Hanya lihat</span>';
+    return u.perms.map(function (k) { return '<span class="usr-perm">' + esc(SHORT[k] || k) + '</span>'; }).join('') +
+      (u.customPerms ? '<span class="usr-perm custom" title="Izin diatur khusus untuk akun ini">khusus</span>' : '');
+  }
+
+  function render() {
+    var box = $('#usrList');
+    if (!box) return;
+    var d = U.data;
+    $('#newUserBtn').hidden = !d;
+    if (!d) { box.innerHTML = '<div class="mt-empty">Memuat pengguna…</div>'; $('#usrChips').innerHTML = ''; $('#usrDefault').innerHTML = ''; return; }
+    $('#usrSub').textContent = d.isAdmin ? 'Buat akun, atur role dan izin, reset password, atau nonaktifkan akses.'
+      : 'Akun coach di bawah kamu: buat akun, atur izin, reset password, atau nonaktifkan akses.';
+
+    $('#usrDefault').innerHTML = d.isAdmin
+      ? '<section class="usr-default panel ' + (d.defaultSet ? '' : 'missing') + '">' + IC.key +
+        '<div><b>Default password</b><span>' + (d.defaultSet
+          ? 'Sudah diatur' + (d.defaultMeta ? ' · ' + esc(d.defaultMeta.by) + ', ' + esc(d.defaultMeta.at) : '') + '. Dipakai untuk akun baru dan reset password; pengguna wajib menggantinya saat login.'
+          : 'Belum diatur. Atur dulu sebelum membuat akun atau reset password.') + '</span></div>' +
+        '<button type="button" class="btn sm' + (d.defaultSet ? '' : ' primary') + '" data-usr-default>' + (d.defaultSet ? 'Ganti default' : 'Atur default') + '</button></section>'
+      : (d.defaultSet ? '' : '<section class="usr-default panel missing">' + IC.warn + '<div><b>Default password belum diatur</b><span>Minta admin mengaturnya sebelum membuat akun atau reset password.</span></div></section>');
+
+    var counts = { all: d.users.length, active: 0, off: 0, must: 0 };
+    d.users.forEach(function (u) { if (u.active) counts.active++; else counts.off++; if (u.mustChange && u.active) counts.must++; });
+    $('#usrChips').innerHTML = [['all', 'Semua'], ['active', 'Aktif'], ['off', 'Nonaktif'], ['must', 'Belum ganti password']].map(function (c) {
+      return '<button class="chip' + (U.filter === c[0] ? ' active' : '') + '" data-usr-filter="' + c[0] + '">' + c[1] + '<span class="count">' + counts[c[0]] + '</span></button>';
+    }).join('');
+
+    var q = U.q.toLowerCase().trim();
+    var list = d.users.filter(function (u) {
+      if (U.filter === 'active' && !u.active) return false;
+      if (U.filter === 'off' && u.active) return false;
+      if (U.filter === 'must' && !(u.mustChange && u.active)) return false;
+      return !q || (u.username + ' ' + u.coach + ' ' + u.note + ' ' + u.role).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!list.length) { box.innerHTML = '<div class="mt-empty"><b>Tidak ada pengguna</b><span>Ubah filter atau buat pengguna baru.</span></div>'; return; }
+    box.innerHTML = '<div class="table-scroll usr-scroll"><table class="usr-table"><thead><tr>' +
+      '<th>Pengguna</th><th>Role</th><th>Izin</th><th>Status</th><th>Login terakhir</th><th class="usr-act-h"><span class="sr">Aksi</span></th></tr></thead><tbody>' +
+      list.map(function (u) {
+        var status = !u.active ? '<span class="usr-status off">Nonaktif</span>'
+          : u.mustChange ? '<span class="usr-status must">Belum ganti password</span>'
+          : !u.hasPassword ? '<span class="usr-status off">Tanpa password</span>'
+          : '<span class="usr-status on">Aktif</span>';
+        var acts = '<button type="button" class="icon-sm" title="Ubah" data-usr-edit="' + esc(u.username) + '">' + IC.edit + '</button>';
+        if (!u.self) {
+          acts += '<button type="button" class="icon-sm" title="Reset ke default password" data-usr-reset="' + esc(u.username) + '"' + (d.defaultSet ? '' : ' disabled') + '>' + IC.key + '</button>' +
+            (u.active ? '<button type="button" class="icon-sm danger" title="Nonaktifkan (cabut akses)" data-usr-off="' + esc(u.username) + '">' + IC.off + '</button>'
+              : '<button type="button" class="icon-sm" title="Aktifkan kembali" data-usr-on="' + esc(u.username) + '">' + IC.on + '</button>') +
+            (d.isAdmin ? '<button type="button" class="icon-sm danger" title="Hapus akun" data-usr-del="' + esc(u.username) + '">' + IC.trash + '</button>' : '');
+        }
+        return '<tr class="' + (u.active ? '' : 'is-off') + '"><td><div class="usr-who"><span class="avatar xs">' + esc(A.initials(u.coach || u.username)) + '</span>' +
+          '<span class="pr-main"><span class="pr-name">' + esc(u.username) + (u.self ? ' <small>(kamu)</small>' : '') + '</span>' +
+          '<span class="pr-sub">' + esc([u.coach, u.note].filter(Boolean).join(' · ') || '—') + '</span></span></div></td>' +
+          '<td><span class="usr-role ' + u.role.toLowerCase() + '">' + esc(ROLE_LABEL[u.role] || u.role) + '</span></td>' +
+          '<td><div class="usr-perms">' + permChips(u) + '</div></td>' +
+          '<td>' + status + '</td>' +
+          '<td class="usr-last">' + esc(u.lastLogin || 'Belum pernah') + '</td>' +
+          '<td><div class="usr-acts">' + acts + '</div></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  // ───────────── user form ─────────────
+  function byName(n) { return (U.data.users || []).filter(function (u) { return u.username === n; })[0]; }
+
+  function openUser(u) {
+    var d = U.data;
+    U.f = {
+      mode: 'user', isNew: !u, username: u ? u.username : '', role: u ? u.role : 'COACH',
+      coach: u ? u.coach : (d.coaches[0] || ''), note: u ? u.note : '',
+      useDefault: u ? !u.customPerms : true, perms: u ? u.perms.slice() : null, self: !!(u && u.self), saving: false,
+    };
+    if (!U.f.perms) U.f.perms = defaultsFor(U.f.role);
+    renderUser();
+    show();
+    setTimeout(function () { var el = $(U.f.isNew ? '#usrName' : '#usrNote'); if (el) el.focus(); }, 250);
+  }
+  function defaultsFor(role) {
+    return U.data.perms.filter(function (p) { return p.def.indexOf(role) >= 0; }).map(function (p) { return p.key; });
+  }
+  function userOk() {
+    var f = U.f;
+    if (f.isNew && !/^[a-z0-9][a-z0-9._-]{2,29}$/.test(f.username)) return false;
+    if (f.role !== 'ADMIN' && !f.coach.trim()) return false;
+    if (f.isNew && !U.data.defaultSet) return false;
+    return true;
+  }
+  function renderUser() {
+    var f = U.f, d = U.data;
+    var roleField = d.isAdmin
+      ? '<div class="field wide"><label>Role</label><div class="chips seg tight">' + ['COACH', 'TL', 'ADMIN'].map(function (r) {
+          return '<button type="button" class="chip' + (f.role === r ? ' active' : '') + '" data-usr-role="' + r + '"' + (f.self && f.role !== r ? ' disabled' : '') + '>' + ROLE_LABEL[r] + '</button>';
+        }).join('') + '</div><div class="hint soft">' + (f.role === 'ADMIN' ? 'Admin melihat semua coach dan punya semua izin.'
+          : f.role === 'TL' ? 'TL melihat semua coach yang kolom TL-nya berisi nama ini.' : 'Coach hanya melihat jemaat dengan kolom COACH ini.') + '</div></div>'
+      : '<div class="field"><label>Role</label><input value="Coach" disabled></div>';
+    var names = f.role === 'TL' ? d.tls : d.coaches;
+    var nameField = f.role === 'ADMIN'
+      ? '<div class="field"><label for="usrCoach">Nama <span class="opt">opsional</span></label><input id="usrCoach" maxlength="80" value="' + esc(f.coach) + '" placeholder="mis. Rommy"></div>'
+      : f.role === 'COACH'
+        ? '<div class="field"><label for="usrCoachSel">Coach</label><select id="usrCoachSel" class="mul-select">' +
+          (names.indexOf(f.coach) < 0 && f.coach ? '<option value="' + esc(f.coach) + '" selected>' + esc(f.coach) + ' (tidak ada di database)</option>' : '') +
+          names.map(function (n) { return '<option value="' + esc(n) + '"' + (n === f.coach ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select>' +
+          '<div class="hint soft">Sama dengan isi kolom COACH di database.</div></div>'
+        : '<div class="field"><label for="usrCoach">Nama TL</label><input id="usrCoach" list="usrTls" maxlength="80" value="' + esc(f.coach) + '" placeholder="mis. Rommy Christensen">' +
+          '<datalist id="usrTls">' + names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' +
+          '<div class="hint soft">Sama persis dengan isi kolom TL di database.</div></div>';
+    var allowed = d.perms.filter(function (p) { return p.roles.indexOf(f.role) >= 0; });
+    var permsField = f.role === 'ADMIN'
+      ? '<div class="field wide"><label>Izin</label><div class="usr-perm-note">Admin selalu punya semua izin.</div></div>'
+      : '<div class="field wide"><label>Izin</label>' +
+        '<label class="mul-all"><input type="checkbox" id="usrDefaultPerms"' + (f.useDefault ? ' checked' : '') + '><span>Pakai izin bawaan role ' + esc(ROLE_LABEL[f.role]) + '</span></label>' +
+        '<div class="usr-perm-list">' + allowed.map(function (p) {
+          var on = (f.useDefault ? defaultsFor(f.role) : f.perms).indexOf(p.key) >= 0;
+          var locked = f.useDefault || (!d.isAdmin && !p.mine);
+          return '<label class="mul-check' + (on ? ' on' : '') + (locked ? ' locked' : '') + '"><input type="checkbox" data-usr-perm="' + p.key + '"' + (on ? ' checked' : '') + (locked ? ' disabled' : '') + '>' +
+            '<span class="pr-main"><span class="pr-name">' + esc(p.label) + '</span>' +
+            (!d.isAdmin && !p.mine ? '<span class="pr-sub">Kamu sendiri tidak punya izin ini</span>' : '') + '</span></label>';
+        }).join('') + '</div>' +
+        '<div class="hint soft">Tanpa izin apa pun, akun hanya bisa melihat. Pertemuan dan Visit CG selalu bisa diisi.</div></div>';
+    var info = f.isNew
+      ? (d.defaultSet
+        ? '<div class="note-box">' + IC.key + '<span>Password awal akun ini adalah <b>default password</b>. Saat login pertama, pengguna wajib membuat password baru.</span></div>'
+        : '<div class="rs-warn">' + IC.warn + '<span>Default password belum diatur' + (d.isAdmin ? '. Tutup form ini lalu klik <b>Atur default</b>.' : '. Minta admin mengaturnya.') + '</span></div>')
+      : '';
+    $('#usrModal').innerHTML = head(IC.user, f.isNew ? 'Pengguna baru' : 'Ubah pengguna', f.isNew ? 'Akun login baru' : f.username) +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      (f.isNew ? '<div class="field"><label for="usrName">Username</label><input id="usrName" maxlength="30" autocapitalize="none" spellcheck="false" value="' + esc(f.username) + '" placeholder="mis. angie">' +
+        '<div class="hint soft">Huruf kecil, angka, titik atau minus.</div></div>' : '') +
+      roleField + nameField +
+      '<div class="field' + (f.isNew ? '' : ' wide') + '"><label for="usrNote">Catatan <span class="opt">opsional</span></label><input id="usrNote" maxlength="200" value="' + esc(f.note) + '" placeholder="mis. Coach AOG Teens"></div>' +
+      permsField + '</div>' + info + '</div>' +
+      footer(f.isNew ? 'Buat akun' : 'Simpan', userOk());
+  }
+
+  function openDefault() {
+    U.f = { mode: 'default', saving: false };
+    $('#usrModal').innerHTML = head(IC.key, 'Default password', 'Untuk akun baru dan reset password') +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field"><label for="usrDef">Default password</label><input id="usrDef" type="password" autocomplete="new-password"></div>' +
+      '<div class="field"><label for="usrDef2">Ulangi</label><input id="usrDef2" type="password" autocomplete="new-password"></div>' +
+      '</div><div class="hint soft usr-hint">Minimal 8 karakter. Bagikan ke pengguna baru secara pribadi. Password ini tidak disimpan di spreadsheet, dan akun yang sudah memakai password sendiri tidak terpengaruh.</div></div>' +
+      footer('Simpan default', false);
+    show();
+    setTimeout(function () { $('#usrDef').focus(); }, 250);
+  }
+
+  function updateSave() {
+    var f = U.f, b = $('#usrSave');
+    if (!f || !b) return;
+    var ok = f.mode === 'user' ? userOk()
+      : f.mode === 'default' ? ($('#usrDef').value.length >= 8 && $('#usrDef').value === $('#usrDef2').value)
+      : ($('#usrCur').value && $('#usrNew').value.length >= 8 && $('#usrNew').value === $('#usrNew2').value);
+    b.disabled = f.saving || !ok;
+  }
+
+  function busy(on) {
+    U.f.saving = on;
+    $('#usrSave').disabled = on;
+    $('#usrSave').classList.toggle('loading', on);
+  }
+
+  function save() {
+    var f = U.f;
+    if (!f || f.saving) return;
+    var call, args, done;
+    if (f.mode === 'password') {
+      call = 'changePassword'; args = [{ current: $('#usrCur').value, next: $('#usrNew').value }];
+      done = function () { closeModal(); A.toast('Password baru tersimpan ✨'); };
+    } else if (f.mode === 'default') {
+      call = 'setDefaultPassword'; args = [$('#usrDef').value];
+      done = function (res) { U.data = res; closeModal(); render(); A.toast('Default password tersimpan'); };
+    } else {
+      call = 'saveUser';
+      args = [{ isNew: f.isNew, username: f.username, role: f.role, coach: f.coach.trim(), note: f.note,
+        perms: f.role === 'ADMIN' || f.useDefault ? null : f.perms }];
+      done = function (res) {
+        U.data = res; closeModal(); render();
+        A.toast(f.isNew ? 'Akun ' + f.username + ' dibuat. Password awal = default password.' : 'Pengguna ' + f.username + ' tersimpan');
+      };
+    }
+    busy(true);
+    A.api.apply(null, [call].concat(args)).then(function (res) { U.f.saving = false; done(res); }, function (err) {
+      if (!U.f) return;
+      busy(false);
+      if (err.isAuth) return;
+      $('#usrErr').textContent = A.errText(err);
+      updateSave();
+    });
+  }
+
+  function act(call, username, question, toast) {
+    if (question && !window.confirm(question)) return;
+    A.api(call, username, call === 'setUserActive' ? toast.active : undefined).then(function (res) {
+      U.data = res; render(); A.toast(toast.text || toast);
+    }, function (err) { if (!err.isAuth) A.toast(A.errText(err)); });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if (t.closest('#userMenuBtn')) return toggleMenu();
+    if ((el = t.closest('[data-user-menu]'))) {
+      toggleMenu(false);
+      if (el.dataset.userMenu === 'password') return openPassword();
+      if (window.AOGMeetings) window.AOGMeetings.setView('users');
+      return;
+    }
+    if (!t.closest('#userMenu') && !$('#userMenu').hidden) toggleMenu(false);
+    if (t.closest('#newUserBtn')) return U.data && openUser(null);
+    if (t.closest('[data-usr-default]')) return openDefault();
+    if ((el = t.closest('[data-usr-filter]'))) { U.filter = el.dataset.usrFilter; return render(); }
+    if ((el = t.closest('[data-usr-edit]'))) return openUser(byName(el.dataset.usrEdit));
+    if ((el = t.closest('[data-usr-reset]'))) {
+      var n = el.dataset.usrReset;
+      return act('resetUserPassword', n, 'Reset password ' + n + ' ke default password? Pengguna ini keluar dari semua perangkat dan wajib membuat password baru saat login.', 'Password ' + n + ' direset ke default');
+    }
+    if ((el = t.closest('[data-usr-off]'))) {
+      var o = el.dataset.usrOff;
+      return act('setUserActive', o, 'Nonaktifkan ' + o + '? Aksesnya langsung dicabut. Bisa diaktifkan lagi nanti.', { active: false, text: o + ' dinonaktifkan' });
+    }
+    if ((el = t.closest('[data-usr-on]'))) return act('setUserActive', el.dataset.usrOn, '', { active: true, text: el.dataset.usrOn + ' aktif kembali' });
+    if ((el = t.closest('[data-usr-del]'))) {
+      var x = el.dataset.usrDel;
+      return act('deleteUser', x, 'Hapus akun ' + x + ' secara permanen? Kalau hanya ingin mencabut akses, pakai Nonaktifkan.', 'Akun ' + x + ' dihapus');
+    }
+    if (!U.f) return;
+    if (t.closest('[data-usr-close]')) return closeModal();
+    if (t.closest('#usrSave')) return save();
+    if ((el = t.closest('[data-usr-role]')) && !el.disabled) {
+      U.f.role = el.dataset.usrRole;
+      U.f.coach = U.f.role === 'COACH' ? (U.data.coaches.indexOf(U.f.coach) >= 0 ? U.f.coach : (U.data.coaches[0] || ''))
+        : U.f.role === 'TL' ? (U.data.tls.indexOf(U.f.coach) >= 0 ? U.f.coach : (U.data.tls[0] || '')) : U.f.coach;
+      U.f.useDefault = true;
+      U.f.perms = defaultsFor(U.f.role);
+      return renderUser();
+    }
+  });
+
+  document.addEventListener('input', function (e) {
+    var f = U.f, id = e.target.id;
+    if (id === 'usrSearch') { U.q = e.target.value; return render(); }
+    if (!f) return;
+    if (id === 'usrName') { f.username = e.target.value.trim().toLowerCase(); }
+    if (id === 'usrCoach') f.coach = e.target.value;
+    if (id === 'usrNote') f.note = e.target.value;
+    updateSave();
+  });
+
+  document.addEventListener('change', function (e) {
+    var f = U.f, t = e.target;
+    if (!f || f.mode !== 'user') return;
+    if (t.id === 'usrCoachSel') { f.coach = t.value; return updateSave(); }
+    if (t.id === 'usrDefaultPerms') {
+      f.useDefault = t.checked;
+      if (!t.checked) f.perms = defaultsFor(f.role).filter(function (k) { return U.data.isAdmin || U.data.perms.some(function (p) { return p.key === k && p.mine; }); });
+      return renderUser();
+    }
+    if (t.dataset && t.dataset.usrPerm) {
+      var k = t.dataset.usrPerm;
+      f.perms = f.perms.filter(function (x) { return x !== k; });
+      if (t.checked) f.perms.push(k);
+      t.closest('.mul-check').classList.toggle('on', t.checked);
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!$('#userMenu').hidden) { toggleMenu(false); return; }
+    if (U.f) { e.stopPropagation(); closeModal(); }
+  }, true);
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.users = function () {
+    if (!A.can('users')) { if (window.AOGMeetings) window.AOGMeetings.setView('dashboard'); return; }
+    render(); load();
+  };
+  window.AOGUsers = {
+    forceChange: forceChange,
+    reset: function () {
+      U.data = null; U.filter = 'all'; U.q = '';
+      if (U.f) U.f.saving = false;
+      U.f = null;
+      var w = $('#usrModalWrap');
+      if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+      var m = $('#userMenu'); if (m) m.hidden = true;
+      var s = $('#usrSearch'); if (s) s.value = '';
+      endForced();
+    },
+  };
+})();
+</script>

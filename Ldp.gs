@@ -48,6 +48,7 @@ function getLdpProgress(token) {
 function saveLdp(token, payload) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
+  requirePerm_(session, 'edit');
   if (!payload || !payload.id || !payload.name) throw new Error('Data LDP tidak valid.');
 
   return withScriptLock_(function () {

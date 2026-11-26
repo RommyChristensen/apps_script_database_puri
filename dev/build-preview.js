@@ -118,6 +118,7 @@ function main() {
     ${read('Visits.gs')}
     ${read('Visi.gs')}
     ${read('Swot.gs')}
+    ${read('Users.gs')}
     window.__mock = mocks;
     var api = { getDashboardData: getDashboardData, updatePerson: updatePerson, login: login, logout: logout,
       getMeetings: getMeetings, saveMeeting: saveMeeting, setTaskDone: setTaskDone, deleteMeeting: deleteMeeting,
@@ -127,7 +128,9 @@ function main() {
       multiplyCg: multiplyCg, getMultiplications: getMultiplications,
       getVisits: getVisits, scheduleVisit: scheduleVisit, logVisit: logVisit, deleteVisit: deleteVisit,
       getVisi: getVisi, saveVisi: saveVisi, deleteVisi: deleteVisi, addVisiMilestone: addVisiMilestone, deleteVisiMilestone: deleteVisiMilestone,
-      getSwot: getSwot, saveSwot: saveSwot };
+      getSwot: getSwot, saveSwot: saveSwot,
+      getUsers: getUsers, saveUser: saveUser, setUserActive: setUserActive, resetUserPassword: resetUserPassword,
+      deleteUser: deleteUser, setDefaultPassword: setDefaultPassword, changePassword: changePassword };
     function runner(ok, fail) {
       var r = {
         withSuccessHandler: function (f) { return runner(f, fail); },

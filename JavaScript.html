@@ -76,6 +76,9 @@
       if (msg.indexOf('AUTH:') >= 0) {
         signOut(msg.replace(/^.*AUTH:\s*/, ''));
         err.isAuth = true;
+      } else if (msg.indexOf('PWCHANGE:') >= 0) {
+        err.isAuth = true;
+        if (window.AOGUsers) window.AOGUsers.forceChange();
       }
       throw err;
     });
@@ -279,7 +282,7 @@
   }
   function updateLock() {
     var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open, #visiModalWrap.open');
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open, #visiModalWrap.open, #usrModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -973,13 +976,12 @@
     var wa = waLink(p.phone);
     var editing = !!(state.edit && state.edit.id === p.id);
     var actions = [];
-    var admin = !!(state.data.user && state.data.user.isAdmin);
-    // Coach rows: only TLs and admins edit them (the server enforces the same).
+    // Coach rows: only TLs and admins edit them; every action also needs its permission (the server enforces the same).
     var lead = seesMany();
-    if (!p.isCoach || lead) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
-    if (window.AOGLdp && (!p.isCoach || lead)) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
-    if (window.AOGRestructure && !p.isCoach) actions.push('<button type="button" class="btn edit-btn" data-rs-move="' + p.id + '">' + ICON.users + 'Pindah CG</button>');
-    if (window.AOGRestructure && admin) actions.push('<button type="button" class="btn danger-btn" data-rs-delete="' + p.id + '">' + ICON.close + 'Hapus</button>');
+    if ((!p.isCoach || lead) && can('edit')) actions.push('<button type="button" class="btn edit-btn" data-start-edit="' + p.id + '">' + ICON.edit + 'Edit</button>');
+    if (window.AOGLdp && (!p.isCoach || lead) && can('edit')) actions.push('<button type="button" class="btn edit-btn" data-ldp-open="' + p.id + '">' + ICON.check + 'Update LDP</button>');
+    if (window.AOGRestructure && !p.isCoach && can('restructure')) actions.push('<button type="button" class="btn edit-btn" data-rs-move="' + p.id + '">' + ICON.users + 'Pindah CG</button>');
+    if (window.AOGRestructure && !p.isCoach && can('delete')) actions.push('<button type="button" class="btn danger-btn" data-rs-delete="' + p.id + '">' + ICON.close + 'Hapus</button>');
     if (wa) actions.push('<a class="btn primary" href="' + esc(wa) + '" target="_blank" rel="noopener">' + ICON.wa + 'WhatsApp</a>');
     if (p.phone) actions.push('<a class="btn" href="tel:' + esc(p.phone.replace(/[^\d+]/g, '')) + '" target="_top">' + ICON.phone + 'Telepon</a>');
     if (p.email) actions.push('<a class="btn" href="mailto:' + esc(p.email) + '" target="_top">' + ICON.mail + 'Email</a>');
@@ -1079,6 +1081,11 @@
     if (u.isTl) return (u.coaches || []).some(function (c) { return String(c).toLowerCase() === k; });
     return !!k && String(u.coach || '').toLowerCase() === k;
   }
+  /** True when the signed-in user has this feature permission (edit, restructure, delete, visi, users). */
+  function can(perm) {
+    var u = (state.data && state.data.user) || {};
+    return !!(u.perms ? u.perms.indexOf(perm) >= 0 : u.isAdmin);
+  }
   /** Admin or TL: sees more than one coach, so lists show coach names and coach filters. */
   function seesMany() { var u = (state.data && state.data.user) || {}; return !!(u.isAdmin || u.isTl); }
 
@@ -1129,6 +1136,7 @@
     if (window.AOGVisits) window.AOGVisits.reset();
     if (window.AOGVisi) window.AOGVisi.reset();
     if (window.AOGSwot) window.AOGSwot.reset();
+    if (window.AOGUsers) window.AOGUsers.reset();
     showLogin(message);
   }
 
@@ -1149,6 +1157,7 @@
       setLoginBusy(false);
       saveToken(res.token);
       $('#loginPass').value = '';
+      if (res.mustChange && window.AOGUsers) return window.AOGUsers.forceChange(res.user);
       load(false);
     }, function (err) {
       setLoginBusy(false);
@@ -1285,7 +1294,9 @@
     $: $, $$: $$, esc: esc, initials: initials, api: api, state: state, toast: toast, ICON: ICON,
     posInfo: posInfo, errText: errText, updateLock: updateLock, openPerson: openPerson, posBadge: posBadge,
     openCoach: openCoach, closeDrawer: closeDrawer, personRow: personRow, msPct: msPct, cgInfo: cgInfo,
-    POSITIONS: POSITIONS, isActive: isActive, canCoach: canCoach, seesMany: seesMany,
+    POSITIONS: POSITIONS, isActive: isActive, canCoach: canCoach, seesMany: seesMany, can: can,
+    callServer: callServer, load: function (r) { load(!!r); }, saveToken: function (t) { saveToken(t); }, signOut: function (m) { signOut(m); },
+    enterApp: enterApp, renderUser: renderUser,
     cgHealth: cgHealth, healthBadge: healthBadge,
     parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
     /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */

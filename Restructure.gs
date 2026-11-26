@@ -19,6 +19,7 @@ const ARCHIVE_HEADERS = ['DIARSIPKAN PADA', 'OLEH', 'ALASAN', 'BARIS ASAL', 'NAM
 function updateCgInfo(token, info) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
+  requirePerm_(session, 'restructure');
   const code = cgCode_(info && info.cg);
   if (!code) throw new Error('Pilih CG.');
   return withScriptLock_(function () {
@@ -53,6 +54,7 @@ function updateCgInfo(token, info) {
 function movePerson(token, req) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
+  requirePerm_(session, 'restructure');
   const code = cgCode_(req && req.cg);
   if (!req || !req.id || !req.name || !code) throw new Error('Data pindah CG tidak valid.');
   return withScriptLock_(function () {
@@ -84,7 +86,7 @@ function movePerson(token, req) {
 function deletePerson(token, req) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
-  if (session.role !== 'ADMIN') throw new Error('Hanya admin yang bisa menghapus data.');
+  requirePerm_(session, 'delete');
   if (!req || !req.id || !req.name) throw new Error('Data hapus tidak valid.');
   const reason = String(req.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
   if (reason.length < 3) throw new Error('Tulis alasan penghapusan.');
@@ -93,6 +95,7 @@ function deletePerson(token, req) {
   return withScriptLock_(function () {
     const db = readDatabase_(ss);
     const person = personAt_(db, req.id, req.name);
+    if (!canAccessCoach_(session, person.coach)) throw new Error('Kamu hanya bisa menghapus data coach kamu.');
     const row = db.display[person.id - 1];
     const header = db.header;
     // Every non-empty cell, as "HEADER: value" (milestones use their sub-header, e.g. "MSJ 1: -").
@@ -209,7 +212,7 @@ function getArchiveSheet_(ss) {
 }
 
 /** Re-checks the signed-in admin's own password (counts towards the login lock). */
-function confirmPassword_(ss, session, password) {
+function confirmPassword_(ss, session, password, wrongMessage) {
   const cache = CacheService.getScriptCache();
   const failKey = 'fail:' + session.username;
   const fails = Number(cache.get(failKey) || 0);
@@ -217,7 +220,7 @@ function confirmPassword_(ss, session, password) {
   const acc = readAccounts_(ss).filter(function (a) { return a.username === session.username; })[0];
   if (!acc || !passwordMatches_(String(password || ''), acc.stored)) {
     cache.put(failKey, String(fails + 1), AUTH.LOCK_MINUTES * 60);
-    throw new Error('Password salah. Data tidak dihapus.');
+    throw new Error(wrongMessage || 'Password salah. Data tidak dihapus.');
   }
   cache.remove(failKey);
 }

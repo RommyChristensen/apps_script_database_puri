@@ -250,6 +250,7 @@ function withScriptLock_(fn) {
  * Returns { changes: [{label, from, to}], person } — person is the row as parsed before the write.
  */
 function applyPersonUpdate_(ss, session, payload) {
+  requirePerm_(session, 'edit');
   if (!payload || !payload.id || !payload.name) throw new Error('Data edit tidak valid.');
   const sheet = getDatabaseSheet_(ss);
   const lastRow = sheet.getLastRow();

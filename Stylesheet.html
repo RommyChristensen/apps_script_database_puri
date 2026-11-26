@@ -239,6 +239,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* the hidden attribute always wins over component display rules */
   html, body { margin: 0; }
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -1268,6 +1269,73 @@
   #themeBtn.is-dark .theme-sun { display: block; }
   #themeBtn.is-dark .theme-moon { display: none; }
   body, .topbar, .card, .panel { transition: background-color .3s, border-color .3s, color .3s; }
+
+
+  /* Accounts: forced password change, user menu, Pengguna page */
+  .pw-hello { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); background: var(--sky-50); border-radius: 12px; padding: 10px 12px; }
+  .pw-hello b { color: var(--navy); }
+  .pw-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  .pw-rules li { display: flex; align-items: center; gap: 8px; }
+  .pw-rules li::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--slate-300); flex-shrink: 0; transition: background .2s; }
+  .pw-rules li.ok { color: var(--green-700); font-weight: 600; }
+  .pw-rules li.ok::before { background: var(--green-500); }
+  .pw-out { justify-self: center; font-size: 13px; }
+  .user-chip { position: relative; }
+  .user-menu-btn { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 4px 6px 4px 0; border-radius: 10px; color: inherit; min-width: 0; }
+  .user-menu-btn:hover .user-name { color: var(--blue-600); }
+  .user-menu-btn:focus-visible { outline: 2px solid var(--sky-400); outline-offset: 2px; }
+  .user-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; min-width: 210px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 6px; display: grid; gap: 2px; animation: rise .2s var(--ease-out); }
+  .user-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 600; color: var(--ink); text-align: left; }
+  .user-menu button:hover, .user-menu button:focus-visible { background: var(--sky-50); color: var(--blue-700); outline: none; }
+  .user-menu .i { width: 17px; height: 17px; color: var(--blue-600); }
+  .usr-avatar { background: linear-gradient(135deg, var(--blue-600), var(--sky-400)); }
+  .usr-avatar .i { width: 26px; height: 26px; color: #fff; }
+  .usr-hint { margin-top: 10px; }
+  .usr-default { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .usr-default > .i { width: 22px; height: 22px; color: var(--blue-600); flex-shrink: 0; }
+  .usr-default > div { flex: 1; min-width: 200px; display: grid; gap: 2px; }
+  .usr-default b { color: var(--navy); font-size: 14px; }
+  .usr-default span { font-size: 13px; color: var(--muted); }
+  .usr-default.missing { border-color: var(--amber-200); background: var(--amber-50); }
+  .usr-default.missing > .i { color: var(--amber-700); }
+  .usr-scroll { border: 1px solid var(--line); border-radius: 16px; background: var(--card); margin: 0; padding: 0; }
+  .usr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .usr-table th { text-align: left; font-size: 11.5px; font-weight: 800; color: var(--muted); padding: 10px 12px; background: var(--sky-50); border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .usr-table td { padding: 10px 12px; border-bottom: 1px solid var(--slate-150); vertical-align: middle; }
+  .usr-table tr:last-child td { border-bottom: 0; }
+  .usr-table tr.is-off td { opacity: .6; }
+  .usr-table tr.is-off td:last-child { opacity: 1; }
+  .usr-who { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+  .usr-who .pr-main { display: grid; }
+  .usr-who small { font-weight: 600; color: var(--muted); }
+  .usr-role { font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .usr-role.admin { background: var(--teal-100); color: var(--teal-700); }
+  .usr-role.tl { background: var(--violet-100); color: var(--violet-700); }
+  .usr-role.coach { background: var(--sky-100); color: var(--blue-700); }
+  .usr-perms { display: flex; flex-wrap: wrap; gap: 4px; min-width: 160px; }
+  .usr-perm { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 8px; background: var(--slate-100); color: var(--ink-2); white-space: nowrap; }
+  .usr-perm.all { background: var(--teal-100); color: var(--teal-700); }
+  .usr-perm.none { background: var(--amber-100); color: var(--amber-800); }
+  .usr-perm.custom { background: none; border: 1px dashed var(--slate-300); color: var(--muted); }
+  .usr-status { font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .usr-status.on { background: var(--green-100); color: var(--green-700); }
+  .usr-status.off { background: var(--slate-100); color: var(--muted); }
+  .usr-status.must { background: var(--amber-100); color: var(--amber-800); }
+  .usr-last { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .usr-acts { display: flex; gap: 4px; justify-content: flex-end; }
+  .usr-acts .icon-sm:disabled { opacity: .4; cursor: not-allowed; }
+  .usr-act-h { width: 1%; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .usr-perm-list { display: grid; gap: 6px; }
+  .field label.mul-check, .field label.mul-all { display: flex; margin: 0; font-size: 13px; color: var(--ink); }
+  .field label.mul-all { margin-bottom: 8px; color: var(--blue-700); }
+  .usr-perm-list .mul-check.locked { cursor: default; opacity: .75; }
+  .usr-perm-list .pr-main { display: grid; }
+  .usr-perm-note { font-size: 13px; color: var(--muted); background: var(--sky-50); border-radius: 10px; padding: 10px 12px; }
+  .note-box { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: var(--sky-50); color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+  .note-box .i { width: 18px; height: 18px; color: var(--blue-600); flex-shrink: 0; margin-top: 1px; }
+  .chip:disabled { opacity: .45; cursor: not-allowed; }
+  @media (max-width: 640px) { .user-menu-btn { padding-right: 0; } }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

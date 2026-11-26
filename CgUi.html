@@ -48,7 +48,7 @@
   }
   function canEdit(list) {
     var u = A.state.data && A.state.data.user;
-    return !!(u && list.length && A.canCoach(list[0].coach));
+    return !!(u && list.length && A.canCoach(list[0].coach) && A.can('restructure'));
   }
 
   // ───────────── open / close ─────────────

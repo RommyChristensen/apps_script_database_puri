@@ -38,6 +38,7 @@ function getCgLocations(token) {
 function setCgLocation(token, loc) {
   const ss = getSpreadsheet_();
   const session = requireSession_(token, ss);
+  requirePerm_(session, 'restructure');
   if (!loc || !loc.cg) throw new Error('Pilih CG.');
   const cgs = cgSummaries_(ss);
   const cg = cgs.filter(function (c) { return c.code === String(loc.cg).toUpperCase().trim(); })[0];
@@ -174,7 +175,7 @@ function locationsPayload_(ss, session) {
       place: r.place || '', address: r.address || '', link: r.link || '',
       lat: coords ? coords.lat : null, lng: coords ? coords.lng : null,
       updatedBy: r.updatedBy || '', updatedAt: r.updatedAt || '',
-      canEdit: canAccessCoach_(session, g.coach),
+      canEdit: canAccessCoach_(session, g.coach) && hasPerm_(session, 'restructure'),
     };
   });
 

@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs', 'Swot.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs', 'Swot.gs', 'Users.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, getUsers, saveUser, setUserActive, resetUserPassword, deleteUser, setDefaultPassword, changePassword, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -294,7 +294,7 @@ test('a coach only receives their own people; admin receives everyone', () => {
   assert.ok(d.people.every((p) => p.coach === 'Angie'), 'only Angie');
   assert.deepStrictEqual(clone(d.coaches.map((c) => c.name)), ['Angie']);
   assert.strictEqual(d.spreadsheetUrl, '', 'no spreadsheet link for coaches');
-  assert.deepStrictEqual(clone(d.user), { username: 'angie', coach: 'Angie', role: 'COACH', isAdmin: false, isTl: false });
+  assert.deepStrictEqual(clone(d.user), { username: 'angie', coach: 'Angie', role: 'COACH', isAdmin: false, isTl: false, perms: ['edit', 'restructure'] });
   const all = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token);
   assert.strictEqual(all.coaches.length, 5);
   assert.ok(all.people.length > d.people.length);
@@ -693,7 +693,7 @@ test('delete: admin only, password required, archived before the row is removed'
   const p = people().find((x) => x.coach === 'Angie' && x.position === 'MEMBER');
   const rowsBefore = s.grid.length;
   const next = s.grid[p.id]; // the row below moves up
-  assert.throws(() => s.raw.deletePerson(s.token, { id: p.id, name: p.name, reason: 'pindah gereja', password: 'angie-pass' }), /Hanya admin/);
+  assert.throws(() => s.raw.deletePerson(s.token, { id: p.id, name: p.name, reason: 'pindah gereja', password: 'angie-pass' }), /tidak punya izin "Hapus data/);
   assert.throws(() => s.raw.deletePerson(admin, { id: p.id, name: p.name, reason: 'pindah gereja', password: 'salah' }), /Password salah/);
   assert.throws(() => s.raw.deletePerson(admin, { id: p.id, name: p.name, reason: '', password: 'admin-pass' }), /alasan/);
   assert.strictEqual(s.grid.length, rowsBefore, 'nothing deleted yet');
@@ -985,6 +985,119 @@ test('SWOT: TL writes for their coaches, coach reads only, versions are kept', (
   assert.strictEqual(s.raw.saveSwot(s.token, { coach: 'Angie', s: 'Hangat, dekat dengan CGL', w: 'Kurang rapi administrasi', o: 'Banyak mahasiswa baru', t: 'Jadwal kuliah padat' }).unchanged, true);
   res = s.raw.saveSwot(admin, { coach: 'Angie', s: 'Hangat', w: 'Administrasi', o: 'Mahasiswa baru', t: 'Kuliah' });
   assert.deepStrictEqual([res.current.s, res.current.role, res.history.length, res.history[0].s], ['Hangat', 'Admin', 1, 'Hangat, dekat dengan CGL']);
+});
+
+console.log('Users.gs');
+function uSetup() {
+  const s = boot(withTl(base), { accounts: tlAccounts() });
+  const admin = s.token;
+  s.raw.setDefaultPassword(admin, 'Welcome2026');
+  return { s, admin };
+}
+
+test('users: new account gets the default password and must change it before anything else', () => {
+  const { s, admin } = uSetup();
+  assert.throws(() => s.raw.setDefaultPassword(admin, 'short'), /minimal 8/);
+  let res = s.raw.saveUser(admin, { isNew: true, username: 'Lenita.k', role: 'COACH', coach: 'Lenita', perms: null, note: 'Coach baru' });
+  assert.throws(() => s.raw.saveUser(admin, { isNew: true, username: 'lenita.k', role: 'COACH', coach: 'Lenita' }), /sudah dipakai/);
+  assert.throws(() => s.raw.saveUser(admin, { isNew: true, username: 'x', role: 'COACH', coach: 'Lenita' }), /3–30/);
+  const u = res.users.find((x) => x.username === 'lenita.k');
+  assert.deepStrictEqual([u.role, u.coach, u.active, u.mustChange, clone(u.perms)], ['COACH', 'Lenita', true, true, ['edit', 'restructure']]);
+  const login = s.raw.login('lenita.k', 'Welcome2026');
+  assert.strictEqual(login.mustChange, true);
+  assert.throws(() => s.raw.getDashboardData(login.token), /PWCHANGE/);
+  assert.throws(() => s.raw.changePassword(login.token, { next: 'pendek' }), /minimal 8/);
+  assert.throws(() => s.raw.changePassword(login.token, { next: 'Welcome2026' }), /default/);
+  assert.throws(() => s.raw.changePassword(login.token, { next: 'lenita.k' }), /minimal 8|username/);
+  s.raw.changePassword(login.token, { next: 'Lenita-Rahasia-1' });
+  assert.ok(s.raw.getDashboardData(login.token).people.length > 0, 'same session continues');
+  assert.strictEqual(s.raw.login('lenita.k', 'Lenita-Rahasia-1').mustChange, false);
+  const row = s.auth.find((r) => r[0] === 'lenita.k');
+  const H = s.auth[0];
+  assert.ok(/^sha256\$/.test(row[H.indexOf('PASSWORD')]));
+  assert.strictEqual(row[H.indexOf('WAJIB GANTI')], '');
+});
+
+test('users: voluntary change needs the current password; logging in with the default forces a change', () => {
+  const { s, admin } = uSetup();
+  const angie = s.raw.login('angie', 'angie-pass').token;
+  assert.throws(() => s.raw.changePassword(angie, { current: 'salah', next: 'AngieBaru123' }), /lama salah/);
+  s.raw.changePassword(angie, { current: 'angie-pass', next: 'AngieBaru123' });
+  assert.throws(() => s.raw.login('angie', 'angie-pass'), /salah/);
+  // reset → default → must change
+  s.raw.resetUserPassword(admin, 'angie');
+  assert.throws(() => s.raw.getDashboardData(angie), /AUTH:/, 'old session ends');
+  const again = s.raw.login('angie', 'Welcome2026');
+  assert.strictEqual(again.mustChange, true);
+});
+
+test('users: revoke signs the user out; re-activate lets them in again', () => {
+  const { s, admin } = uSetup();
+  const angie = s.raw.login('angie', 'angie-pass').token;
+  s.raw.setUserActive(admin, 'angie', false);
+  assert.throws(() => s.raw.getDashboardData(angie), /AUTH:/);
+  assert.throws(() => s.raw.login('angie', 'angie-pass'), /salah/);
+  assert.strictEqual(s.raw.getUsers(admin).users.find((u) => u.username === 'angie').active, false);
+  s.raw.setUserActive(admin, 'angie', true);
+  assert.ok(s.raw.login('angie', 'angie-pass').token);
+  assert.throws(() => s.raw.setUserActive(admin, 'admin', false), /sendiri/);
+  assert.throws(() => s.raw.saveUser(admin, { username: 'admin', role: 'COACH', coach: 'Angie' }), /role akunmu sendiri/);
+});
+
+test('users: permissions limit what a user can do', () => {
+  const { s, admin, } = uSetup();
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit'] });
+  const angie = s.raw.login('angie', 'angie-pass').token;
+  const d = s.raw.getDashboardData(angie);
+  assert.deepStrictEqual(clone(d.user.perms), ['edit']);
+  const p = d.people.find((x) => !x.isCoach && x.cg);
+  const other = d.people.find((x) => !x.isCoach && x.cg && x.cg !== p.cg);
+  assert.throws(() => s.raw.movePerson(angie, { id: p.id, name: p.name, cg: other.cg }), /tidak punya izin/);
+  s.raw.updatePerson(angie, { id: p.id, name: p.name, changes: { cgArea: 'Puri' } });
+  // no permissions at all = read only
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: [] });
+  assert.throws(() => s.raw.updatePerson(angie, { id: p.id, name: p.name, changes: { cgArea: 'Kembangan' } }), /tidak punya izin/);
+  assert.strictEqual(s.auth.find((r) => r[0] === 'angie')[s.auth[0].indexOf('IZIN')], '-');
+  // delete can be granted to a coach (own people only)
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure', 'delete'] });
+  s.raw.deletePerson(angie, { id: p.id, name: p.name, reason: 'Pindah gereja', password: 'angie-pass' });
+  // role default again → IZIN empty
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure'] });
+  assert.strictEqual(s.auth.find((r) => r[0] === 'angie')[s.auth[0].indexOf('IZIN')], '');
+});
+
+test('users: a TL manages only coach accounts under them and only gives what they have', () => {
+  const { s, admin } = uSetup();
+  const tl = s.raw.login('rommy', 'rommy-pass').token;
+  const list = s.raw.getUsers(tl);
+  assert.deepStrictEqual(clone(list.users.map((u) => u.username)), ['angie', 'nopass', 'old']);
+  assert.deepStrictEqual(clone(list.coaches), ['Angie', 'Carla']);
+  assert.strictEqual(list.defaultMeta, null);
+  s.raw.saveUser(tl, { isNew: true, username: 'carla', role: 'ADMIN', coach: 'Carla', perms: null });
+  assert.strictEqual(s.raw.getUsers(admin).users.find((u) => u.username === 'carla').role, 'COACH', 'TL can only create coaches');
+  assert.throws(() => s.raw.saveUser(tl, { isNew: true, username: 'david2', role: 'COACH', coach: 'David' }), /di bawah kamu/);
+  assert.throws(() => s.raw.saveUser(tl, { username: 'carla', role: 'COACH', coach: 'Carla', perms: ['edit', 'delete'] }), /tidak punya/);
+  assert.throws(() => s.raw.resetUserPassword(tl, 'admin'), /di bawah kamu/);
+  assert.throws(() => s.raw.setDefaultPassword(tl, 'Something123'), /Hanya admin/);
+  assert.throws(() => s.raw.deleteUser(tl, 'carla'), /Hanya admin/);
+  const angie = s.raw.login('angie', 'angie-pass').token;
+  assert.throws(() => s.raw.getUsers(angie), /tidak punya izin/);
+  // admin can take "users" away from the TL
+  s.raw.saveUser(admin, { username: 'rommy', role: 'TL', coach: 'Rommy Christensen', perms: ['edit', 'restructure', 'visi'] });
+  assert.throws(() => s.raw.getUsers(tl), /tidak punya izin/);
+  s.raw.deleteUser(admin, 'carla');
+  assert.ok(!s.raw.getUsers(admin).users.some((u) => u.username === 'carla'));
+});
+
+test('users: the last active admin cannot be demoted, revoked or deleted', () => {
+  const { s, admin } = uSetup();
+  s.raw.saveUser(admin, { isNew: true, username: 'admin2', role: 'ADMIN', coach: '' });
+  const a2 = s.raw.login('admin2', 'Welcome2026');
+  s.raw.changePassword(a2.token, { next: 'AdminDua-2026' });
+  s.raw.setUserActive(a2.token, 'admin', false);
+  assert.throws(() => s.raw.saveUser(a2.token, { username: 'admin2', role: 'COACH', coach: 'Angie' }), /role akunmu sendiri/);
+  assert.throws(() => s.raw.deleteUser(a2.token, 'admin2'), /sendiri/);
+  s.raw.setUserActive(a2.token, 'admin', true);
 });
 
 const csv = process.argv[2];

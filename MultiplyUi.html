@@ -80,6 +80,7 @@
   function render() {
     var box = $('#mulList');
     if (!box) return;
+    $('#newMulBtn').hidden = !A.can('restructure');
     var h = M.history || [];
     var year = String(new Date().getFullYear());
     var thisYear = h.filter(function (x) { return x.date.slice(0, 4) === year; });
