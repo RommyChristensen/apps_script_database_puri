@@ -44,7 +44,7 @@ const PERMS = [
   { key: 'restructure', label: 'Pindah CG, multiplikasi, info & lokasi CG', roles: ['COACH', 'TL', 'ADMIN'], def: ['COACH', 'TL', 'ADMIN'] },
   { key: 'delete', label: 'Hapus data jemaat (diarsipkan)', roles: ['COACH', 'TL', 'ADMIN'], def: ['ADMIN'] },
   { key: 'visi', label: 'Isi Visi & SWOT coach', roles: ['TL', 'ADMIN'], def: ['TL', 'ADMIN'] },
-  { key: 'events', label: 'Isi jadwal acara', roles: ['TL', 'ADMIN'], def: ['TL', 'ADMIN'] },
+  { key: 'events', label: 'Isi jadwal acara', roles: ['COACH', 'TL', 'ADMIN'], def: ['COACH', 'TL', 'ADMIN'] },
   { key: 'users', label: 'Kelola pengguna', roles: ['TL', 'ADMIN'], def: ['TL', 'ADMIN'] },
 ];
 

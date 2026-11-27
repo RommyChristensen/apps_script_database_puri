@@ -69,7 +69,7 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `SwotUi.html` | SWOT tab in the coach drawer |
 | `Users.gs` | Kelola pengguna: accounts, permissions, default password, revoke |
 | `UsersUi.html` | User menu, Pengguna page, forced / voluntary password change |
-| `Events.gs` | Jadwal Acara: event calendar per TL |
+| `Events.gs` | Jadwal Acara: TL and coach event calendars |
 | `EventsUi.html` | Jadwal page: month calendar, agenda, event form, WhatsApp export |
 | `BirthdaysUi.html` | Dashboard birthday countdown and greeting templates |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
@@ -109,14 +109,19 @@ accounts with that permission.
 ## Jadwal Acara (event calendar)
 
 - **Jadwal** menu: a month calendar (Monday first; multi-day events show on every day) and an Agenda list.
-- Each **TL** keeps their own calendar; coaches see their TL's calendar read-only. **Admins** see every calendar,
-  can filter per TL and can post events for a TL or for **Semua TL** (shown to everyone).
-- An event: name, start date, optional end date (multi-day), optional time and location, category (Ibadah,
-  Camp / Retreat, Training / Kelas, Outreach, Rapat, Lainnya) and notes. Writing needs the `events` permission.
-- **Export teks**: all events or a range of months, as WhatsApp-ready text grouped per month, optionally with
-  notes, with a copy button.
+- **TLs and coaches** each add their own events (permission `events`, on by default for every role):
+  - a **coach** sees their own events, their TL's events and "Semua TL" events (not other coaches' events);
+  - a **TL** sees their own events and the events of every coach under them (read-only);
+  - an **admin** sees everything and can add an event to "Semua TL", any TL or any coach.
+  Everyone changes only their own events (admins: all). Coach events carry a dashed edge and a "C" mark.
+- Filter chips: Semua · Acara TL · Acara coach (coach: "Acara saya"), per coach for a TL, per TL for an admin.
+- An event: name, start date, optional end date, time and location, category (Ibadah, Camp / Retreat,
+  Training / Kelas, Outreach, Rapat, Lainnya) and notes.
+- **Export teks**: all events or a range of months, with checkboxes for **Acara TL** and **Acara coach** (and the
+  notes), as WhatsApp-ready text grouped per month; coach events are labelled "(Coach X)".
 - Stored in the **Jadwal Acara** tab (created automatically): ID, TL, JUDUL, MULAI, SELESAI, JAM, LOKASI,
-  KATEGORI, CATATAN, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI.
+  KATEGORI, CATATAN, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI, COACH. COACH is empty for a TL event; for a coach event
+  TL holds that coach's TL. A tab from the previous version gets the COACH column added automatically.
 
 ## Ulang tahun terdekat (dashboard)
 
@@ -158,7 +163,7 @@ Open it from the user menu (click your name in the top bar). Everyone also gets 
 | `restructure` | Pindah CG, Multiplikasi, info & lokasi CG | Coach, TL, Admin |
 | `delete` | Hapus data jemaat (archived, own coach group) | Admin |
 | `visi` | Visi & SWOT (TL / admin only) | TL, Admin |
-| `events` | Jadwal Acara (TL / admin only) | TL, Admin |
+| `events` | Add events to Jadwal Acara (own calendar) | Coach, TL, Admin |
 | `users` | Kelola pengguna (TL / admin only) | TL, Admin |
 
   Admins always have everything. Pertemuan and Visit CG are open to every account.

@@ -294,7 +294,7 @@ test('a coach only receives their own people; admin receives everyone', () => {
   assert.ok(d.people.every((p) => p.coach === 'Angie'), 'only Angie');
   assert.deepStrictEqual(clone(d.coaches.map((c) => c.name)), ['Angie']);
   assert.strictEqual(d.spreadsheetUrl, '', 'no spreadsheet link for coaches');
-  assert.deepStrictEqual(clone(d.user), { username: 'angie', coach: 'Angie', role: 'COACH', isAdmin: false, isTl: false, perms: ['edit', 'restructure'] });
+  assert.deepStrictEqual(clone(d.user), { username: 'angie', coach: 'Angie', role: 'COACH', isAdmin: false, isTl: false, perms: ['edit', 'restructure', 'events'] });
   const all = s.raw.getDashboardData(s.raw.login('admin', 'admin-pass').token);
   assert.strictEqual(all.coaches.length, 5);
   assert.ok(all.people.length > d.people.length);
@@ -1029,39 +1029,70 @@ test('add member: duplicate names warn first, access and input are checked', () 
 });
 
 console.log('Events.gs + birthday template');
-test('events: TL writes own, coach sees own TL + SEMUA read-only, admin sees and writes all', () => {
+test('events: coach and TL calendars, who sees what, who edits what', () => {
   const { s, admin, angie } = vSetup();
   const budi = s.raw.login('budi', 'budi-pass').token;
+  s.auth.push(['carla', 'carla-pass', 'Carla', 'COACH']);
+  const carla = s.raw.login('carla', 'carla-pass').token;
   const ev = (o) => Object.assign({ title: 'Christmas Service', start: '2026-12-13', time: '19.00', place: 'GMS Puri', category: 'Ibadah' }, o);
   let res = s.raw.saveEvent(s.token, ev());
-  assert.deepStrictEqual([res.events[0].owner, res.events[0].canEdit, res.myTl], ['Rommy Christensen', true, 'Rommy Christensen']);
+  assert.deepStrictEqual([res.events[0].owner, res.events[0].coach, res.events[0].kind, res.events[0].canEdit], ['Rommy Christensen', '', 'tl', true]);
+  // a TL cannot write into someone else's calendar: owner is ignored
   s.raw.saveEvent(s.token, ev({ title: 'Youth Camp', start: '2026-12-19', end: '2026-12-21', category: 'Camp / Retreat', owner: 'Budi' }));
+  const a = s.raw.saveEvent(angie, ev({ title: 'Doa bersama CGL', start: '2026-12-05', category: 'Rapat', owner: 'SEMUA' }));
+  const mine = a.events.find((e) => e.title === 'Doa bersama CGL');
+  assert.deepStrictEqual([mine.owner, mine.coach, mine.kind, mine.canEdit, a.myCoach, a.myTl], ['Rommy Christensen', 'Angie', 'coach', true, 'Angie', 'Rommy Christensen']);
+  s.raw.saveEvent(carla, ev({ title: 'Kumpul CGL Carla', start: '2026-12-06', category: 'Rapat' }));
   s.raw.saveEvent(budi, ev({ title: 'Rapat Budi', start: '2026-12-02', category: 'Rapat' }));
-  s.raw.saveEvent(admin, ev({ title: 'Natal Gereja', start: '2026-12-25', category: 'Ibadah', owner: 'semua' }));
+  s.raw.saveEvent(admin, ev({ title: 'Natal Gereja', start: '2026-12-25', owner: 'semua' }));
+  s.raw.saveEvent(admin, ev({ title: 'Untuk Angie dari admin', start: '2026-12-26', owner: 'COACH:Angie' }));
   assert.throws(() => s.raw.saveEvent(admin, ev({ owner: 'Orang Lain' })), /tidak ditemukan/);
-  // the TL cannot pick another owner: their event stays theirs
-  const camp = s.raw.getEvents(s.token).events.find((e) => e.title === 'Youth Camp');
-  assert.deepStrictEqual([camp.owner, camp.end], ['Rommy Christensen', '2026-12-21']);
-  const seen = s.raw.getEvents(angie);
-  assert.deepStrictEqual(clone(seen.events.map((e) => e.title)), ['Christmas Service', 'Youth Camp', 'Natal Gereja']);
-  assert.ok(seen.events.every((e) => !e.canEdit) && !seen.canWrite);
-  assert.throws(() => s.raw.saveEvent(angie, ev()), /Hanya TL atau admin/);
-  assert.throws(() => s.raw.deleteEvent(budi, camp.id), /milik kamu/);
-  assert.strictEqual(s.raw.getEvents(admin).events.length, 4);
-  assert.deepStrictEqual(clone(s.raw.getEvents(admin).owners), ['SEMUA', 'Budi', 'Rommy Christensen']);
-  s.raw.deleteEvent(s.token, camp.id);
-  assert.ok(!s.raw.getEvents(s.token).events.some((e) => e.id === camp.id));
+  assert.throws(() => s.raw.saveEvent(admin, ev({ owner: 'COACH:Siapa' })), /tidak ditemukan/);
+
+  const titles = (t) => clone(s.raw.getEvents(t).events.map((e) => e.title)).sort();
+  assert.deepStrictEqual(titles(angie), ['Christmas Service', 'Doa bersama CGL', 'Natal Gereja', 'Untuk Angie dari admin', 'Youth Camp']);
+  assert.deepStrictEqual(titles(carla), ['Christmas Service', 'Kumpul CGL Carla', 'Natal Gereja', 'Youth Camp']);
+  assert.deepStrictEqual(titles(s.token), ['Christmas Service', 'Doa bersama CGL', 'Kumpul CGL Carla', 'Natal Gereja', 'Untuk Angie dari admin', 'Youth Camp']);
+  assert.deepStrictEqual(titles(budi), ['Natal Gereja', 'Rapat Budi']);
+  assert.strictEqual(s.raw.getEvents(admin).events.length, 7);
+
+  // TL sees coach events read-only; coaches only edit their own; TL events are read-only for coaches
+  const tlView = s.raw.getEvents(s.token).events;
+  const angieEv = tlView.find((e) => e.title === 'Doa bersama CGL');
+  assert.strictEqual(angieEv.canEdit, false);
+  assert.throws(() => s.raw.deleteEvent(s.token, angieEv.id), /milik kamu/);
+  assert.throws(() => s.raw.saveEvent(s.token, Object.assign({}, angieEv, { title: 'Diubah TL' })), /milik kamu/);
+  const tlEv = s.raw.getEvents(angie).events.find((e) => e.title === 'Christmas Service');
+  assert.strictEqual(tlEv.canEdit, false);
+  assert.throws(() => s.raw.deleteEvent(angie, tlEv.id), /milik kamu/);
+  assert.throws(() => s.raw.deleteEvent(carla, angieEv.id), /milik kamu/);
+  // an admin edit keeps the calendar
+  s.raw.saveEvent(admin, Object.assign({}, angieEv, { title: 'Doa bersama CGL (diubah)', owner: '' }));
+  const kept = s.raw.getEvents(angie).events.find((e) => e.id === angieEv.id);
+  assert.deepStrictEqual([kept.title, kept.coach], ['Doa bersama CGL (diubah)', 'Angie']);
+  s.raw.deleteEvent(angie, angieEv.id);
+  assert.ok(!s.raw.getEvents(s.token).events.some((e) => e.id === angieEv.id));
+  assert.deepStrictEqual(clone(s.raw.getEvents(admin).owners.map((o) => o.value)).slice(0, 3), ['SEMUA', 'TL:Budi', 'TL:Rommy Christensen']);
 });
 
-test('events: validation and the events permission', () => {
-  const { s, admin } = vSetup();
+test('events: validation, the events permission and an old-format tab', () => {
+  const { s, admin, angie } = vSetup();
   assert.throws(() => s.raw.saveEvent(s.token, { title: 'x', start: '2026-12-13', category: 'Ibadah' }), /nama acara/);
   assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '', category: 'Ibadah' }), /tanggal mulai/);
   assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', end: '2026-12-10', category: 'Ibadah' }), /sebelum/);
   assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', category: 'Pesta' }), /kategori/);
-  s.raw.saveUser(admin, { username: 'rommy', role: 'TL', coach: 'Rommy Christensen', perms: ['edit', 'restructure', 'visi', 'users'] });
-  assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', category: 'Ibadah' }), /tidak punya izin/);
-  assert.strictEqual(s.raw.getEvents(s.token).canWrite, false);
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure'] });
+  assert.throws(() => s.raw.saveEvent(angie, { title: 'Camp', start: '2026-12-13', category: 'Ibadah' }), /tidak punya izin/);
+  assert.strictEqual(s.raw.getEvents(angie).canWrite, false);
+  // tab from the previous version (no COACH column): rows read as TL events; the column is added on the next save
+  const old = ['ID', 'TL', 'JUDUL', 'MULAI', 'SELESAI', 'JAM', 'LOKASI', 'KATEGORI', 'CATATAN', 'DIBUAT OLEH', 'DIBUAT PADA', 'DIPERBARUI'];
+  const sh = s.mocks.spreadsheet.insertSheet('Jadwal Acara');
+  sh.appendRow(old);
+  sh.appendRow(['EVOLD', 'Rommy Christensen', 'Rapat lama', '2026-10-01', '', '', '', 'Rapat', '', 'rommy', '2026-09-01 10:00', '2026-09-01 10:00']);
+  const o = s.raw.getEvents(angie).events.find((e) => e.id === 'EVOLD');
+  assert.deepStrictEqual([o.kind, o.coach], ['tl', '']);
+  s.raw.saveEvent(s.token, { title: 'Baru', start: '2026-12-01', category: 'Rapat' });
+  assert.strictEqual(sh._grid[0][12], 'COACH');
 });
 
 test('birthday template: saved per account, empty resets to built-in', () => {
@@ -1090,7 +1121,7 @@ test('users: new account gets the default password and must change it before any
   assert.throws(() => s.raw.saveUser(admin, { isNew: true, username: 'lenita.k', role: 'COACH', coach: 'Lenita' }), /sudah dipakai/);
   assert.throws(() => s.raw.saveUser(admin, { isNew: true, username: 'x', role: 'COACH', coach: 'Lenita' }), /3–30/);
   const u = res.users.find((x) => x.username === 'lenita.k');
-  assert.deepStrictEqual([u.role, u.coach, u.active, u.mustChange, clone(u.perms)], ['COACH', 'Lenita', true, true, ['edit', 'restructure']]);
+  assert.deepStrictEqual([u.role, u.coach, u.active, u.mustChange, clone(u.perms)], ['COACH', 'Lenita', true, true, ['edit', 'restructure', 'events']]);
   const login = s.raw.login('lenita.k', 'Welcome2026');
   assert.strictEqual(login.mustChange, true);
   assert.throws(() => s.raw.getDashboardData(login.token), /PWCHANGE/);
@@ -1150,7 +1181,7 @@ test('users: permissions limit what a user can do', () => {
   s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure', 'delete'] });
   s.raw.deletePerson(angie, { id: p.id, name: p.name, reason: 'Pindah gereja', password: 'angie-pass' });
   // role default again → IZIN empty
-  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure'] });
+  s.raw.saveUser(admin, { username: 'angie', role: 'COACH', coach: 'Angie', perms: ['edit', 'restructure', 'events'] });
   assert.strictEqual(s.auth.find((r) => r[0] === 'angie')[s.auth[0].indexOf('IZIN')], '');
 });
 

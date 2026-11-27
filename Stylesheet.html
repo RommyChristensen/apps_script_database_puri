@@ -1483,6 +1483,15 @@
     .bd-person { flex-wrap: wrap; }
   }
 
+
+  /* Jadwal: coach events are told apart by a dashed edge + a "C" mark, never by colour alone */
+  .ev-chip.is-coach { border-left-style: dashed; }
+  .ev-c { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 4px; border-radius: 4px; background: var(--cat); color: var(--card); font-size: 9px; font-weight: 800; vertical-align: 1px; }
+  .ev-card.is-coach { border-left-style: dashed; }
+  .ev-who.coach { color: var(--violet-700); }
+  .ev-incl { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .ev-incl .mul-all { margin: 0; }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   }

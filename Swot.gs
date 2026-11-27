@@ -73,6 +73,9 @@ function visiSheetNamed_(ss, name, headers) {
     sheet.appendRow(headers);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  } else if (sheet.getLastColumn() < headers.length) {
+    // A tab from an older version: add the new header cells at the end.
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
   }
   return sheet;
 }

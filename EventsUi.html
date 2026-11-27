@@ -1,7 +1,8 @@
 <script>
-/* "Jadwal" menu: the year-round event calendar of a TL (Events.gs).
-   Month calendar + agenda list; TLs / admins add and edit events, everyone
-   can export them as WhatsApp-style text (all, or a range of months). */
+/* "Jadwal" menu: the year-round event calendar (Events.gs). TLs and coaches
+   each keep their own events; a coach sees their own + their TL's, a TL sees
+   their own + their coaches' (read-only). Month calendar + agenda list, and a
+   WhatsApp-style export (all or a range of months, TL and / or coach events). */
 (function () {
   'use strict';
   var A = window.AOG;
@@ -26,7 +27,7 @@
     user: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   };
 
-  var E = { data: null, loading: false, view: '', month: '', day: '', owner: '', past: false, f: null };
+  var E = { data: null, loading: false, view: '', month: '', day: '', filter: '', past: false, f: null };
 
   function today() { return (E.data && E.data.today) || A.toIso(new Date()); }
   function d(iso) { return new Date(iso + 'T00:00:00'); }
@@ -38,7 +39,10 @@
   function endOf(e) { return e.end || e.start; }
   function shortDay(isoStr) { var x = d(isoStr); return DAYS[x.getDay()] + ', ' + x.getDate() + ' ' + MON[x.getMonth()]; }
   function longDay(isoStr) { var x = d(isoStr); return DAYS_LONG[x.getDay()] + ', ' + x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + x.getFullYear(); }
-  function ownerLabel(o) { return o === 'SEMUA' ? 'Semua TL' : 'TL ' + o; }
+  function ownerLabel(o) { return o === 'SEMUA' ? 'Semua TL' : o ? 'TL ' + o : 'Tanpa TL'; }
+  /** "Coach Angie" for a coach event, else "TL Rommy" / "Semua TL". */
+  function whoLabel(e) { return e.kind === 'coach' ? 'Coach ' + e.coach : ownerLabel(e.owner); }
+  function isMine(e) { return E.data && E.data.role === 'COACH' && e.kind === 'coach'; }
 
   /** "Sab, 13 Des" · "Jum–Min, 19–21 Des" · "Rab, 30 Des – Jum, 1 Jan" */
   function rangeText(e) {
@@ -50,8 +54,17 @@
     return shortDay(e.start) + ' – ' + shortDay(e.end);
   }
 
+  /** Events passing the filter chip: '' all · tl · coach · c:<coach> · o:<TL> (admin). */
+  function passes(e, filter) {
+    if (!filter) return true;
+    if (filter === 'tl') return e.kind !== 'coach';
+    if (filter === 'coach') return e.kind === 'coach';
+    if (filter.indexOf('c:') === 0) return e.kind === 'coach' && e.coach === filter.slice(2);
+    if (filter.indexOf('o:') === 0) return e.owner === filter.slice(2);
+    return true;
+  }
   function visible() {
-    return (E.data ? E.data.events : []).filter(function (e) { return !E.owner || e.owner === E.owner; });
+    return (E.data ? E.data.events : []).filter(function (e) { return passes(e, E.filter); });
   }
   function onDay(dayIso) {
     return visible().filter(function (e) { return e.start <= dayIso && endOf(e) >= dayIso; });
@@ -84,27 +97,41 @@
     $('#newEventBtn').hidden = !(E.data && E.data.canWrite);
     $('#exportEventsBtn').hidden = !E.data;
     if (!E.data) { box.innerHTML = '<div class="mt-empty">Memuat jadwal…</div>'; $('#evTools').innerHTML = ''; return; }
-    var sub = E.data.isAdmin ? 'Jadwal acara semua TL. Pilih TL di bawah untuk melihat kalendernya saja.'
-      : E.data.myTl ? 'Acara dari TL ' + E.data.myTl + ' sepanjang tahun.' + (E.data.canWrite ? '' : ' Export teksnya untuk dibagikan ke leader kamu.')
-      : 'Jadwal acara sepanjang tahun.';
+    var role = E.data.role;
+    var sub = E.data.isAdmin ? 'Jadwal acara semua TL dan coach. Saring per TL atau jenis acara di bawah.'
+      : role === 'TL' ? 'Acara kamu dan acara coach-coach di bawah kamu, sepanjang tahun.'
+      : E.data.myTl ? 'Acara kamu dan acara dari TL ' + E.data.myTl + ', sepanjang tahun.'
+      : 'Acara kamu sepanjang tahun.';
     $('#evSub').textContent = sub;
 
-    var owners = {};
-    E.data.events.forEach(function (e) { owners[e.owner] = true; });
-    var ownerKeys = Object.keys(owners).sort(function (a, b) { return (a === 'SEMUA' ? -1 : b === 'SEMUA' ? 1 : a.localeCompare(b)); });
+    var filters = [['', 'Semua'], ['tl', 'Acara TL'], ['coach', role === 'COACH' ? 'Acara saya' : 'Acara coach']];
+    if (role === 'TL' || E.data.isAdmin) {
+      var coaches = {};
+      E.data.events.forEach(function (e) { if (e.kind === 'coach') coaches[e.coach] = true; });
+      var cs = Object.keys(coaches).sort();
+      if (role === 'TL' && cs.length > 1) cs.forEach(function (c) { filters.push(['c:' + c, 'Coach ' + c]); });
+      if (E.data.isAdmin) {
+        var tls = {};
+        E.data.events.forEach(function (e) { if (e.owner && e.owner !== 'SEMUA') tls[e.owner] = true; });
+        Object.keys(tls).sort().forEach(function (t) { filters.push(['o:' + t, 'TL ' + t]); });
+      }
+    }
+    if (!filters.some(function (f) { return f[0] === E.filter; })) E.filter = '';
     $('#evTools').innerHTML =
       '<div class="ev-tabs chips">' +
       '<button class="chip' + (E.view === 'month' ? ' active' : '') + '" data-ev-view="month">' + IC.cal + 'Kalender</button>' +
       '<button class="chip' + (E.view === 'agenda' ? ' active' : '') + '" data-ev-view="agenda">Agenda</button></div>' +
-      (ownerKeys.length > 1 ? '<div class="chips ev-owners"><button class="chip' + (E.owner ? '' : ' active') + '" data-ev-owner="">Semua</button>' +
-        ownerKeys.map(function (o) { return '<button class="chip' + (E.owner === o ? ' active' : '') + '" data-ev-owner="' + esc(o) + '">' + esc(ownerLabel(o)) + '</button>'; }).join('') + '</div>' : '') +
+      '<div class="chips ev-owners">' + filters.map(function (f) {
+        return '<button class="chip' + (E.filter === f[0] ? ' active' : '') + '" data-ev-filter="' + esc(f[0]) + '">' + esc(f[1]) + '</button>';
+      }).join('') + '</div>' +
       '<div class="ev-legend">' + E.data.categories.map(function (c) { return '<span><i class="ev-dot ' + (CAT_CLASS[c] || 'c6') + '"></i>' + esc(c) + '</span>'; }).join('') + '</div>';
 
     box.innerHTML = E.view === 'month' ? monthHtml() : agendaHtml();
   }
 
   function chip(e) {
-    return '<button type="button" class="ev-chip ' + (CAT_CLASS[e.category] || 'c6') + '" data-ev-open="' + esc(e.id) + '" title="' + esc(e.title) + '">' +
+    return '<button type="button" class="ev-chip ' + (CAT_CLASS[e.category] || 'c6') + (e.kind === 'coach' ? ' is-coach' : '') + '" data-ev-open="' + esc(e.id) + '" title="' + esc(e.title + ' · ' + whoLabel(e)) + '">' +
+      (e.kind === 'coach' ? '<span class="ev-c" aria-label="Acara coach">C</span>' : '') +
       (e.time ? '<b>' + esc(e.time) + '</b> ' : '') + esc(e.title) + '</button>';
   }
 
@@ -140,14 +167,14 @@
 
   function card(e) {
     var x = d(e.start);
-    return '<article class="ev-card ' + (CAT_CLASS[e.category] || 'c6') + '" data-ev-open="' + esc(e.id) + '" tabindex="0">' +
+    return '<article class="ev-card ' + (CAT_CLASS[e.category] || 'c6') + (e.kind === 'coach' ? ' is-coach' : '') + '" data-ev-open="' + esc(e.id) + '" tabindex="0">' +
       '<div class="ev-date"><b>' + x.getDate() + '</b><span>' + MON[x.getMonth()] + '</span></div>' +
       '<div class="ev-main"><div class="ev-title">' + esc(e.title) + '</div>' +
       '<div class="ev-meta"><span class="ev-cat">' + esc(e.category) + '</span>' +
       '<span>' + IC.cal + esc(rangeText(e)) + '</span>' +
       (e.time ? '<span>' + IC.clock + esc(e.time) + '</span>' : '') +
       (e.place ? '<span>' + IC.pin + esc(e.place) + '</span>' : '') +
-      (E.data.isAdmin || E.owner === '' && e.owner === 'SEMUA' ? '<span>' + IC.user + esc(ownerLabel(e.owner)) + '</span>' : '') + '</div>' +
+      '<span class="ev-who' + (e.kind === 'coach' ? ' coach' : '') + '">' + IC.user + esc(isMine(e) ? 'Acara saya' : whoLabel(e)) + '</span></div>' +
       (e.notes ? '<p class="ev-notes">' + esc(e.notes) + '</p>' : '') + '</div></article>';
   }
 
@@ -156,7 +183,7 @@
     var toggle = '<label class="mul-all ev-past"><input type="checkbox" id="evPast"' + (E.past ? ' checked' : '') + '><span>Tampilkan acara yang sudah lewat</span></label>';
     if (!list.length) {
       return toggle + '<div class="mt-empty">' + IC.cal + '<b>Belum ada acara' + (E.past ? '' : ' mendatang') + '</b><span>' +
-        (E.data.canWrite ? 'Klik <b>Acara baru</b> untuk mengisi jadwal.' : 'TL kamu belum mengisi jadwal.') + '</span></div>';
+        (E.data.canWrite ? 'Klik <b>Acara baru</b> untuk mengisi jadwal.' : 'Belum ada acara di jadwal ini.') + '</span></div>';
     }
     var last = '', out = toggle;
     list.forEach(function (e) {
@@ -185,7 +212,7 @@
 
   function openView(e) {
     E.f = { mode: 'view', id: e.id };
-    $('#evModal').innerHTML = head(e.title, ownerLabel(e.owner), CAT_CLASS[e.category]) +
+    $('#evModal').innerHTML = head(e.title, (isMine(e) ? 'Acara saya · ' : '') + whoLabel(e) + (e.kind === 'coach' && e.owner ? ' · TL ' + e.owner : ''), CAT_CLASS[e.category]) +
       '<div class="m-body"><div class="ev-detail">' +
       '<div><span>Tanggal</span><b>' + esc(e.end ? longDay(e.start) + ' – ' + longDay(e.end) : longDay(e.start)) + '</b></div>' +
       (e.time ? '<div><span>Jam</span><b>' + esc(e.time) + '</b></div>' : '') +
@@ -196,7 +223,7 @@
       '<div class="m-footer">' + (e.canEdit
         ? '<button type="button" class="btn danger-btn" data-ev-del="' + esc(e.id) + '">' + IC.trash + 'Hapus</button><span style="flex:1"></span>' +
           '<button type="button" class="btn primary" data-ev-edit="' + esc(e.id) + '">' + IC.edit + 'Ubah</button>'
-        : '<span class="vs-ro">Diisi oleh TL</span><span style="flex:1"></span><button type="button" class="btn" data-ev-close>Tutup</button>') + '</div>';
+        : '<span class="vs-ro">Dibuat oleh ' + esc(whoLabel(e)) + '</span><span style="flex:1"></span><button type="button" class="btn" data-ev-close>Tutup</button>') + '</div>';
     show();
   }
 
@@ -205,11 +232,18 @@
     E.f = {
       mode: 'form', id: e ? e.id : '', title: e ? e.title : '', start: e ? e.start : (dayIso || today()), end: e ? e.end : '',
       time: e ? e.time : '', place: e ? e.place : '', category: e ? e.category : 'Ibadah', notes: e ? e.notes : '',
-      owner: e ? e.owner : (E.owner || (data.isAdmin ? 'SEMUA' : data.myTl)), saving: false,
+      owner: e ? ownerValue(e) : (E.filter.indexOf('o:') === 0 ? 'TL:' + E.filter.slice(2) : E.filter.indexOf('c:') === 0 ? 'COACH:' + E.filter.slice(2) : 'SEMUA'), saving: false,
     };
     renderForm();
     show();
     setTimeout(function () { var x = $('#evTitle'); if (x) x.focus(); }, 250);
+  }
+  function ownerValue(e) { return e.kind === 'coach' ? 'COACH:' + e.coach : e.owner === 'SEMUA' ? 'SEMUA' : 'TL:' + e.owner; }
+  function formSub() {
+    var data = E.data;
+    if (data.isAdmin) return 'Pilih kalender: Semua TL, TL, atau coach';
+    if (data.role === 'COACH') return 'Acara kamu (Coach ' + data.myCoach + ')' + (data.myTl ? ' · terlihat juga oleh TL ' + data.myTl : '');
+    return 'Acara TL ' + data.myTl + ' · terlihat oleh semua coach kamu';
   }
   function formOk() {
     var f = E.f;
@@ -217,11 +251,16 @@
   }
   function renderForm() {
     var f = E.f, data = E.data;
-    $('#evModal').innerHTML = head(f.id ? 'Ubah acara' : 'Acara baru', data.isAdmin ? 'Pilih kalender TL atau Semua TL' : ownerLabel(data.myTl)) +
+    $('#evModal').innerHTML = head(f.id ? 'Ubah acara' : 'Acara baru', formSub()) +
       '<div class="m-body mt-form"><div class="form-grid">' +
       '<div class="field wide"><label for="evTitle">Nama acara</label><input id="evTitle" maxlength="120" value="' + esc(f.title) + '" placeholder="mis. Christmas Service"></div>' +
       (data.isAdmin ? '<div class="field wide"><label for="evOwner">Kalender</label><select id="evOwner" class="mul-select">' +
-        data.owners.map(function (o) { return '<option value="' + esc(o) + '"' + (o === f.owner ? ' selected' : '') + '>' + esc(ownerLabel(o)) + '</option>'; }).join('') + '</select></div>' : '') +
+        ['', 'TL', 'Coach'].map(function (g) {
+          var opts = data.owners.filter(function (o) { return o.group === g; }).map(function (o) {
+            return '<option value="' + esc(o.value) + '"' + (o.value === f.owner ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+          }).join('');
+          return g ? (opts ? '<optgroup label="' + g + '">' + opts + '</optgroup>' : '') : opts;
+        }).join('') + '</select></div>' : '') +
       '<div class="field"><label for="evStart">Tanggal mulai</label><input id="evStart" type="date" value="' + esc(f.start) + '"></div>' +
       '<div class="field"><label for="evEnd">Tanggal selesai <span class="opt">opsional</span></label><input id="evEnd" type="date" min="' + esc(f.start) + '" value="' + esc(f.end) + '">' +
       (f.end && f.end < f.start ? '<div class="err">Tidak boleh sebelum tanggal mulai.</div>' : '<div class="hint soft">Untuk acara beberapa hari.</div>') + '</div>' +
@@ -265,23 +304,32 @@
   }
 
   // ───────────── export ─────────────
-  function exportTitle() {
-    var o = E.owner || (E.data.isAdmin ? '' : E.data.myTl);
-    return '*JADWAL ACARA' + (o && o !== 'SEMUA' ? ' — TL ' + o.toUpperCase() : '') + '*';
+  function exportTitle(incTl, incCoach) {
+    var d = E.data, f = E.filter;
+    var who = f.indexOf('o:') === 0 ? 'TL ' + f.slice(2) : f.indexOf('c:') === 0 ? 'Coach ' + f.slice(2)
+      : d.role === 'COACH' ? (incTl && d.myTl ? 'TL ' + d.myTl + (incCoach ? ' & Coach ' + d.myCoach : '') : 'Coach ' + d.myCoach)
+      : d.role === 'TL' ? 'TL ' + d.myTl : '';
+    return '*JADWAL ACARA' + (who ? ' — ' + who.toUpperCase() : '') + '*';
+  }
+  function scopeText(incTl, incCoach) {
+    var mine = E.data.role === 'COACH';
+    return incTl && incCoach ? 'acara TL + ' + (mine ? 'acara saya' : 'coach') : incTl ? 'acara TL saja' : (mine ? 'acara saya saja' : 'acara coach saja');
   }
   /** WhatsApp-style text of the events overlapping [from, to] (yyyy-mm); all when from is empty. */
-  function exportText(from, to, withNotes) {
-    var list = visible();
+  function exportText(from, to, withNotes, incTl, incCoach) {
+    var list = visible().filter(function (e) { return e.kind === 'coach' ? incCoach : incTl; });
     var lo = from ? from + '-01' : '', hi = to ? addDays(addMonths(to, 1) + '-01', -1) : '';
     if (from) list = list.filter(function (e) { return e.start <= hi && endOf(e) >= lo; });
-    var lines = [exportTitle(), '_' + (from ? (from === to ? monthLabel(from) : shortMonth(from) + ' – ' + shortMonth(to)) : 'Semua acara') + '_'];
+    var hasCoach = (E.data.events || []).some(function (e) { return e.kind === 'coach'; });
+    var lines = [exportTitle(incTl, incCoach), '_' + (from ? (from === to ? monthLabel(from) : shortMonth(from) + ' – ' + shortMonth(to)) : 'Semua acara') +
+      (hasCoach ? ' · ' + scopeText(incTl, incCoach) : '') + '_'];
     if (!list.length) { lines.push('', 'Belum ada acara.'); return lines.join('\n'); }
     var last = '';
     list.forEach(function (e) {
       var k = monthKey(lo && e.start < lo ? lo : e.start);
       if (k !== last) { lines.push('', '*' + monthLabel(k).toUpperCase() + '*'); last = k; }
-      lines.push('• ' + rangeText(e) + (e.time ? ' · ' + e.time : '') + ' — ' + e.title + (e.place ? ' 📍 ' + e.place : '') +
-        (E.data.isAdmin && !E.owner ? ' (' + ownerLabel(e.owner) + ')' : ''));
+      var tag = e.kind === 'coach' ? ' (Coach ' + e.coach + ')' : E.data.isAdmin && E.filter.indexOf('o:') !== 0 ? ' (' + ownerLabel(e.owner) + ')' : '';
+      lines.push('• ' + rangeText(e) + (e.time ? ' · ' + e.time : '') + ' — ' + e.title + tag + (e.place ? ' 📍 ' + e.place : ''));
       if (withNotes && e.notes) lines.push('   _' + e.notes.replace(/\s*\n\s*/g, ' ') + '_');
     });
     return lines.join('\n');
@@ -297,7 +345,7 @@
 
   function openExport() {
     var now = monthKey(today());
-    E.f = { mode: 'export', range: 'months', from: now, to: addMonths(now, 3), notes: false };
+    E.f = { mode: 'export', range: 'months', from: now, to: addMonths(now, 3), notes: false, incTl: true, incCoach: true };
     renderExport();
     show();
   }
@@ -308,7 +356,9 @@
         return '<option value="' + k + '"' + (k === val ? ' selected' : '') + '>' + esc(monthLabel(k)) + '</option>';
       }).join('') + '</select>';
     };
-    var text = exportText(f.range === 'all' ? '' : f.from, f.range === 'all' ? '' : (f.to < f.from ? f.from : f.to), f.notes);
+    var none = !f.incTl && !f.incCoach;
+    var text = none ? '' : exportText(f.range === 'all' ? '' : f.from, f.range === 'all' ? '' : (f.to < f.from ? f.from : f.to), f.notes, f.incTl, f.incCoach);
+    var mine = E.data.role === 'COACH';
     $('#evModal').innerHTML = head('Export jadwal', 'Teks siap tempel ke WhatsApp') +
       '<div class="m-body mt-form"><div class="form-grid">' +
       '<div class="field wide"><label>Rentang</label><div class="chips seg tight">' +
@@ -316,11 +366,15 @@
       '<button type="button" class="chip' + (f.range === 'months' ? ' active' : '') + '" data-ev-range="months">Rentang bulan</button></div></div>' +
       '<div class="field"><label for="evFrom">Dari bulan</label>' + sel('evFrom', f.from) + '</div>' +
       '<div class="field"><label for="evTo">Sampai bulan</label>' + sel('evTo', f.to < f.from ? f.from : f.to) + '</div>' +
-      '<div class="field wide"><label class="mul-all"><input type="checkbox" id="evNotesToggle"' + (f.notes ? ' checked' : '') + '><span>Sertakan catatan acara</span></label></div>' +
+      '<div class="field wide"><label>Sertakan</label><div class="ev-incl">' +
+      '<label class="mul-all"><input type="checkbox" id="evIncTl"' + (f.incTl ? ' checked' : '') + '><span>Acara TL</span></label>' +
+      '<label class="mul-all"><input type="checkbox" id="evIncCoach"' + (f.incCoach ? ' checked' : '') + '><span>' + (mine ? 'Acara saya' : 'Acara coach') + '</span></label>' +
+      '<label class="mul-all"><input type="checkbox" id="evNotesToggle"' + (f.notes ? ' checked' : '') + '><span>Catatan acara</span></label></div>' +
+      (none ? '<div class="err">Pilih minimal satu: Acara TL atau ' + (mine ? 'Acara saya' : 'Acara coach') + '.</div>' : '') + '</div>' +
       '<div class="field wide"><label for="evText">Pratinjau</label><textarea id="evText" class="ev-export" rows="12" readonly>' + esc(text) + '</textarea></div>' +
       '</div></div>' +
       '<div class="m-footer"><span class="ldp-err" id="evErr"></span><button type="button" class="btn" data-ev-close>Tutup</button>' +
-      '<button type="button" class="btn primary" id="evCopy">' + IC.copy + '<span id="evCopyLabel">Salin teks</span></button></div>';
+      '<button type="button" class="btn primary" id="evCopy"' + (none ? ' disabled' : '') + '>' + IC.copy + '<span id="evCopyLabel">Salin teks</span></button></div>';
   }
 
   // ───────────── events ─────────────
@@ -329,7 +383,7 @@
     if (t.closest('#newEventBtn')) return E.data && openForm(null, E.view === 'month' && E.day ? E.day : '');
     if (t.closest('#exportEventsBtn')) return E.data && openExport();
     if ((el = t.closest('[data-ev-view]'))) { E.view = el.dataset.evView; return render(); }
-    if ((el = t.closest('[data-ev-owner]'))) { E.owner = el.dataset.evOwner; return render(); }
+    if ((el = t.closest('[data-ev-filter]'))) { E.filter = el.dataset.evFilter; return render(); }
     if ((el = t.closest('[data-ev-month]'))) {
       var n = +el.dataset.evMonth;
       E.month = n ? addMonths(E.month, n) : monthKey(today());
@@ -380,6 +434,8 @@
       if (id === 'evFrom') { f.from = e.target.value; if (f.to < f.from) f.to = f.from; return renderExport(); }
       if (id === 'evTo') { f.to = e.target.value; return renderExport(); }
       if (id === 'evNotesToggle') { f.notes = e.target.checked; return renderExport(); }
+      if (id === 'evIncTl') { f.incTl = e.target.checked; return renderExport(); }
+      if (id === 'evIncCoach') { f.incCoach = e.target.checked; return renderExport(); }
     }
   });
 
@@ -388,7 +444,7 @@
   window.AOGViews.events = function () { render(); load(); };
   window.AOGEvents = {
     reset: function () {
-      E.data = null; E.view = ''; E.month = ''; E.day = ''; E.owner = ''; E.past = false;
+      E.data = null; E.view = ''; E.month = ''; E.day = ''; E.filter = ''; E.past = false;
       if (E.f) E.f.saving = false;
       E.f = null;
       var w = $('#evModalWrap');
