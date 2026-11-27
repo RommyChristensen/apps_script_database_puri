@@ -35,6 +35,8 @@ const CONFIG = {
   VISI_SHEET_NAME: 'Visi',
   VISI_MILESTONE_SHEET_NAME: 'Visi Milestone',
   SWOT_SHEET_NAME: 'SWOT Coach',
+  // Year-round event calendar per TL (see Events.gs).
+  EVENT_SHEET_NAME: 'Jadwal Acara',
   TIME_ZONE: 'Asia/Jakarta',
 };
 
@@ -210,9 +212,25 @@ function buildDashboard_(ss, session) {
     editableFields: EDITABLE_FIELDS.filter(function (f) { return parsed.columns[f.key] !== undefined; }),
     coaches: coaches,
     teamLeaders: parsed.teamLeaders,
+    birthdayTemplate: PropertiesService.getScriptProperties().getProperty('BDAY_TPL:' + session.username) || '',
     people: people,
     warnings: isAdmin ? parsed.warnings : [],
   };
+}
+
+/**
+ * Saves this user's own birthday greeting template (placeholders such as
+ * {nama}, {panggilan}, {umur}, {cg}, {tanggal}). Empty = the built-in template.
+ */
+function saveBirthdayTemplate(token, text) {
+  const ss = getSpreadsheet_();
+  const session = requireSession_(token, ss);
+  text = String(text == null ? '' : text).replace(/\r\n?/g, '\n').trim();
+  if (text.length > 1000) throw new Error('Template maksimal 1000 karakter.');
+  const props = PropertiesService.getScriptProperties();
+  const key = 'BDAY_TPL:' + session.username;
+  if (text) props.setProperty(key, text); else props.deleteProperty(key);
+  return { birthdayTemplate: text };
 }
 
 // ───────────────────────────── Editing ─────────────────────────────

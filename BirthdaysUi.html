@@ -1,0 +1,246 @@
+<script>
+/* Dashboard "Ulang tahun terdekat": the nearest birthdays among the people
+   this account can see, with a live countdown, and a greeting built from the
+   user's own template (saveBirthdayTemplate in Code.gs) to copy or send. */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, esc = A.esc;
+  var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  var DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  var WINDOW_DAYS = 30, LIST_MAX = 6;
+  var BUILT_IN = 'Selamat ulang tahun yang ke-{umur}, {panggilan}! 🎉🎂\n\n' +
+    'Terima kasih sudah jadi bagian dari {cg}. Kiranya Tuhan memberkati kamu dengan sukacita, kesehatan, dan hikmat ' +
+    'di tahun yang baru ini. Kami bersyukur punya kamu! 🙏✨';
+  var PLACEHOLDERS = [['{nama}', 'Nama lengkap'], ['{panggilan}', 'Nama depan'], ['{umur}', 'Umur baru'], ['{cg}', 'Nama CG'], ['{tanggal}', 'Tanggal ultah']];
+
+  var IC = {
+    cake: '<svg class="i" viewBox="0 0 24 24"><path d="M4 21h16v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2z"/><path d="M4 16c1.5 0 1.5 1 3 1s1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1"/><path d="M12 11V8M12 5.5c.8-.8.8-1.7 0-2.5-.8.8-.8 1.7 0 2.5z"/></svg>',
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    copy: '<svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+    wa: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 1c-1-.4-1.6-1-2-2l1-1-1-2z"/></svg>',
+    gear: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  };
+
+  var B = { list: [], timer: null, f: null };
+
+  function startOfToday() { var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+
+  /** Next birthday on or after today; 29 Feb falls on 28 Feb in other years. */
+  function nextBirthday(birth, from) {
+    function on(year) {
+      var leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+      var day = birth.getMonth() === 1 && birth.getDate() === 29 && !leap ? 28 : birth.getDate();
+      return new Date(year, birth.getMonth(), day);
+    }
+    var next = on(from.getFullYear());
+    if (next < from) next = on(from.getFullYear() + 1);
+    return next;
+  }
+
+  function compute() {
+    var today = startOfToday();
+    return (A.state.people || []).map(function (p) {
+      if (/^non/i.test(String(p.status || '').trim())) return null;
+      var birth = A.parseLooseDate(p.birthDate || '');
+      if (!birth || isNaN(birth)) return null;
+      var next = nextBirthday(birth, today);
+      return { p: p, next: next, days: Math.round((next - today) / 86400000), age: next.getFullYear() - birth.getFullYear() };
+    }).filter(Boolean).sort(function (a, b) { return a.days - b.days || a.p.name.localeCompare(b.p.name); });
+  }
+
+  function dateText(dt) { return DAYS[dt.getDay()] + ', ' + dt.getDate() + ' ' + MONTHS[dt.getMonth()]; }
+  function inText(days) { return days === 0 ? 'Hari ini' : days === 1 ? 'Besok' : days + ' hari lagi'; }
+  function firstName(n) { return String(n || '').trim().split(/\s+/)[0] || n; }
+
+  function countdown(next) {
+    var ms = Math.max(0, next - new Date());
+    var d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24, m = Math.floor(ms / 60000) % 60;
+    return '<span><b>' + d + '</b>hari</span><span><b>' + h + '</b>jam</span><span><b>' + m + '</b>menit</span>';
+  }
+
+  // ───────────── dashboard card ─────────────
+  function render() {
+    var box = $('#bdaySection');
+    if (!box) return;
+    if (!A.state.data) { box.innerHTML = ''; return; }
+    B.list = compute();
+    var head = '<div class="section-head"><h2>Ulang tahun terdekat</h2>' +
+      '<button type="button" class="btn sm" data-bd-template>' + IC.gear + 'Template ucapan</button></div>';
+    if (!B.list.length) {
+      box.innerHTML = head + '<div class="panel bd-empty">' + IC.cake + '<span>Belum ada tanggal lahir yang bisa dibaca. Isi kolom TTL (mis. "14 March 2008") untuk melihat ulang tahun terdekat.</span></div>';
+      return;
+    }
+    var first = B.list[0];
+    var sameDay = B.list.filter(function (x) { return x.days === first.days; });
+    var rest = B.list.filter(function (x) { return x.days !== first.days && x.days <= WINDOW_DAYS; }).slice(0, LIST_MAX);
+    var isToday = first.days === 0;
+    box.innerHTML = head + '<div class="bd-grid">' +
+      '<div class="panel bd-feature' + (isToday ? ' is-today' : '') + '">' +
+      '<div class="bd-feature-top">' + IC.cake + '<span>' + (isToday ? 'Hari ini ulang tahun! 🎉' : dateText(first.next)) + '</span></div>' +
+      '<div class="bd-people">' + sameDay.map(function (x) {
+        return '<div class="bd-person"><span class="avatar">' + esc(A.initials(x.p.name)) + '</span>' +
+          '<div class="bd-who"><b>' + esc(x.p.name) + '</b><span>Ke-' + x.age + ' · ' + esc([x.p.cg, x.p.coach && 'Coach ' + x.p.coach].filter(Boolean).join(' · ')) + '</span></div>' +
+          '<button type="button" class="btn sm primary" data-bd-greet="' + x.p.id + '">' + IC.cake + 'Ucapkan</button></div>';
+      }).join('') + '</div>' +
+      (isToday ? '' : '<div class="bd-count" id="bdCount" aria-live="polite">' + countdown(first.next) + '</div>') +
+      '</div>' +
+      '<div class="panel bd-list"><div class="bd-list-head">Berikutnya · ' + WINDOW_DAYS + ' hari ke depan</div>' +
+      (rest.length ? rest.map(function (x) {
+        return '<div class="bd-row"><span class="avatar xs">' + esc(A.initials(x.p.name)) + '</span>' +
+          '<div class="bd-who"><b>' + esc(x.p.name) + '</b><span>' + esc(dateText(x.next)) + ' · ke-' + x.age + (x.p.cg ? ' · ' + esc(x.p.cg) : '') + '</span></div>' +
+          '<span class="bd-in">' + esc(inText(x.days)) + '</span>' +
+          '<button type="button" class="icon-sm" title="Ucapkan" aria-label="Ucapkan untuk ' + esc(x.p.name) + '" data-bd-greet="' + x.p.id + '">' + IC.cake + '</button></div>';
+      }).join('') : '<p class="muted bd-none">Tidak ada lagi dalam ' + WINDOW_DAYS + ' hari ke depan.</p>') + '</div></div>';
+    tick(first);
+  }
+
+  function tick(first) {
+    if (B.timer) clearInterval(B.timer);
+    if (!first || first.days === 0) return;
+    B.timer = setInterval(function () {
+      var el = $('#bdCount');
+      if (!el) { clearInterval(B.timer); return; }
+      if (new Date() >= first.next) { render(); return; }
+      el.innerHTML = countdown(first.next);
+    }, 30000);
+  }
+
+  // ───────────── greeting / template ─────────────
+  function template() { return (A.state.data && A.state.data.birthdayTemplate) || BUILT_IN; }
+  function fill(tpl, x) {
+    var vals = {
+      '{nama}': x.p.name, '{panggilan}': firstName(x.p.name), '{umur}': String(x.age),
+      '{cg}': x.p.cg || 'CG kita', '{tanggal}': x.next.getDate() + ' ' + MONTHS[x.next.getMonth()],
+    };
+    return tpl.replace(/\{(nama|panggilan|umur|cg|tanggal)\}/gi, function (m) { return vals[m.toLowerCase()]; });
+  }
+  function entry(id) { return B.list.filter(function (x) { return x.p.id === id; })[0]; }
+
+  function show() { $('#bdModalWrap').classList.add('open'); $('#bdModalWrap').setAttribute('aria-hidden', 'false'); A.updateLock(); }
+  function closeModal() {
+    if (B.f && B.f.saving) return;
+    B.f = null;
+    $('#bdModalWrap').classList.remove('open');
+    $('#bdModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+  function head(title, sub) {
+    return '<div class="m-head"><div class="m-head-row"><div class="avatar lg bd-avatar">' + IC.cake + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div><div class="m-sub">' + esc(sub) + '</div></div>' +
+      '<button class="close-btn dark" data-bd-close aria-label="Tutup">' + IC.close + '</button></div></div>';
+  }
+
+  function openGreet(id) {
+    var x = entry(id);
+    if (!x) return;
+    B.f = { mode: 'greet', id: id };
+    var wa = A.waLink(x.p.phone);
+    $('#bdModal').innerHTML = head('Ucapan untuk ' + firstName(x.p.name), x.p.name + ' · ' + inText(x.days) + ', ' + dateText(x.next)) +
+      '<div class="m-body mt-form"><div class="field wide"><label for="bdText">Pesan <span class="opt">bisa diubah sebelum disalin</span></label>' +
+      '<textarea id="bdText" rows="8" maxlength="2000">' + esc(fill(template(), x)) + '</textarea></div>' +
+      '<button type="button" class="link-btn bd-tpl-link" data-bd-template>' + IC.gear + 'Atur template default</button></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="bdErr"></span>' +
+      (wa ? '<a class="btn" id="bdWa" href="' + esc(wa) + '" target="_blank" rel="noopener">' + IC.wa + 'Kirim WhatsApp</a>' : '') +
+      '<button type="button" class="btn primary" id="bdCopy">' + IC.copy + '<span id="bdCopyLabel">Salin pesan</span></button></div>';
+    syncWa();
+    show();
+    setTimeout(function () { var t = $('#bdText'); if (t) t.focus(); }, 250);
+  }
+  function syncWa() {
+    var a = $('#bdWa'), x = B.f && entry(B.f.id);
+    if (a && x) a.href = A.waLink(x.p.phone) + '?text=' + encodeURIComponent($('#bdText').value);
+  }
+
+  function openTemplate() {
+    var back = B.f && B.f.mode === 'greet' ? B.f.id : null;
+    B.f = { mode: 'template', back: back, text: (A.state.data && A.state.data.birthdayTemplate) || BUILT_IN, saving: false };
+    renderTemplate();
+    show();
+    setTimeout(function () { var t = $('#bdTpl'); if (t) t.focus(); }, 250);
+  }
+  function sample() {
+    var x = (B.f && B.f.back && entry(B.f.back)) || B.list[0];
+    return x || { p: { name: 'Joshua Tan', cg: 'AOG 05' }, age: 20, next: new Date() };
+  }
+  function renderTemplate() {
+    var f = B.f;
+    $('#bdModal').innerHTML = head('Template ucapan', 'Template default milik akun kamu') +
+      '<div class="m-body mt-form"><div class="field wide"><label for="bdTpl">Template</label>' +
+      '<textarea id="bdTpl" rows="7" maxlength="1000">' + esc(f.text) + '</textarea>' +
+      '<div class="bd-ph">' + PLACEHOLDERS.map(function (p) {
+        return '<button type="button" class="chip" data-bd-ph="' + p[0] + '" title="' + esc(p[1]) + '">' + p[0] + '</button>';
+      }).join('') + '</div><div class="hint soft">Klik placeholder untuk menyisipkannya. Nilainya diganti otomatis untuk tiap orang.</div></div>' +
+      '<div class="field wide"><label>Contoh hasil (' + esc(sample().p.name) + ')</label><div class="bd-preview" id="bdPreview">' + esc(fill(f.text, sample())) + '</div></div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="bdErr"></span>' +
+      '<button type="button" class="btn" data-bd-reset>Pakai template bawaan</button>' +
+      '<button type="button" class="btn primary" id="bdSave"><span class="spin"></span>' + IC.check + '<span id="bdSaveLabel">Simpan template</span></button></div>';
+  }
+
+  function saveTemplate(text) {
+    var f = B.f;
+    if (!f || f.saving) return;
+    f.saving = true;
+    var btn = $('#bdSave');
+    btn.disabled = true; btn.classList.add('loading'); $('#bdSaveLabel').textContent = 'Menyimpan…';
+    A.api('saveBirthdayTemplate', text).then(function (res) {
+      f.saving = false;
+      A.state.data.birthdayTemplate = res.birthdayTemplate;
+      A.toast(res.birthdayTemplate ? 'Template ucapan tersimpan ✨' : 'Kembali ke template bawaan');
+      if (f.back) openGreet(f.back); else closeModal();
+    }, function (err) {
+      f.saving = false;
+      if (err.isAuth || !$('#bdSave')) return;
+      btn.disabled = false; btn.classList.remove('loading'); $('#bdSaveLabel').textContent = 'Simpan template';
+      $('#bdErr').textContent = A.errText(err);
+    });
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-bd-greet]'))) return openGreet(+el.dataset.bdGreet);
+    if (t.closest('[data-bd-template]')) return openTemplate();
+    if (!B.f) return;
+    if (t.closest('[data-bd-close]')) return closeModal();
+    if (t.closest('#bdCopy')) {
+      return A.copyText($('#bdText').value).then(function () {
+        $('#bdCopyLabel').textContent = 'Tersalin ✓';
+        A.toast('Ucapan tersalin');
+        setTimeout(function () { var l = $('#bdCopyLabel'); if (l) l.textContent = 'Salin pesan'; }, 1800);
+      }, function () { $('#bdText').select(); $('#bdErr').textContent = 'Salin otomatis gagal. Teks sudah dipilih, salin manual.'; });
+    }
+    if ((el = t.closest('[data-bd-ph]'))) {
+      var ta = $('#bdTpl'), ph = el.dataset.bdPh;
+      var a = ta.selectionStart || ta.value.length, b = ta.selectionEnd || a;
+      ta.value = ta.value.slice(0, a) + ph + ta.value.slice(b);
+      ta.focus(); ta.setSelectionRange(a + ph.length, a + ph.length);
+      B.f.text = ta.value; $('#bdPreview').textContent = fill(B.f.text, sample());
+      return;
+    }
+    if (t.closest('[data-bd-reset]')) return saveTemplate('');
+    if (t.closest('#bdSave')) return saveTemplate(B.f.text.trim() === BUILT_IN ? '' : B.f.text);
+  });
+
+  document.addEventListener('input', function (e) {
+    if (!B.f) return;
+    if (e.target.id === 'bdText') syncWa();
+    if (e.target.id === 'bdTpl') { B.f.text = e.target.value; $('#bdPreview').textContent = fill(B.f.text, sample()); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (B.f && e.key === 'Escape') { e.stopPropagation(); closeModal(); }
+  }, true);
+
+  window.AOGBirthdays = {
+    onData: render,
+    reset: function () {
+      if (B.timer) clearInterval(B.timer);
+      B.list = []; B.f = null;
+      var w = $('#bdModalWrap'); if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+      var s = $('#bdaySection'); if (s) s.innerHTML = '';
+    },
+  };
+})();
+</script>

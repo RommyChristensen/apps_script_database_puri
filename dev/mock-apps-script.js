@@ -81,6 +81,7 @@
     var props = {
       getProperty: function (k) { return Object.prototype.hasOwnProperty.call(propStore, k) ? propStore[k] : null; },
       setProperty: function (k, v) { propStore[k] = String(v); return props; },
+      deleteProperty: function (k) { delete propStore[k]; return props; },
     };
     var ss = {
       getSheets: function () { return sheets.slice(); },

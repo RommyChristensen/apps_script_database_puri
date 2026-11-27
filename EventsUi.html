@@ -1,0 +1,399 @@
+<script>
+/* "Jadwal" menu: the year-round event calendar of a TL (Events.gs).
+   Month calendar + agenda list; TLs / admins add and edit events, everyone
+   can export them as WhatsApp-style text (all, or a range of months). */
+(function () {
+  'use strict';
+  var A = window.AOG;
+  var $ = A.$, $$ = A.$$, esc = A.esc;
+  var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  var DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+  var DAYS_LONG = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  var CAT_CLASS = { 'Ibadah': 'c1', 'Camp / Retreat': 'c2', 'Training / Kelas': 'c3', 'Outreach': 'c4', 'Rapat': 'c5', 'Lainnya': 'c6' };
+
+  var IC = {
+    close: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    prev: '<svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+    next: '<svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
+    cal: '<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    clock: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    pin: '<svg class="i" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    edit: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+    trash: '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    copy: '<svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+    user: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  };
+
+  var E = { data: null, loading: false, view: '', month: '', day: '', owner: '', past: false, f: null };
+
+  function today() { return (E.data && E.data.today) || A.toIso(new Date()); }
+  function d(iso) { return new Date(iso + 'T00:00:00'); }
+  function iso(dt) { return A.toIso(dt); }
+  function addDays(isoStr, n) { var x = d(isoStr); x.setDate(x.getDate() + n); return iso(x); }
+  function monthKey(isoStr) { return isoStr.slice(0, 7); }
+  function addMonths(key, n) { var y = +key.slice(0, 4), m = +key.slice(5, 7) - 1 + n; var x = new Date(y, m, 1); return iso(x).slice(0, 7); }
+  function monthLabel(key) { return MONTHS[+key.slice(5, 7) - 1] + ' ' + key.slice(0, 4); }
+  function endOf(e) { return e.end || e.start; }
+  function shortDay(isoStr) { var x = d(isoStr); return DAYS[x.getDay()] + ', ' + x.getDate() + ' ' + MON[x.getMonth()]; }
+  function longDay(isoStr) { var x = d(isoStr); return DAYS_LONG[x.getDay()] + ', ' + x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + x.getFullYear(); }
+  function ownerLabel(o) { return o === 'SEMUA' ? 'Semua TL' : 'TL ' + o; }
+
+  /** "Sab, 13 Des" · "Jum–Min, 19–21 Des" · "Rab, 30 Des – Jum, 1 Jan" */
+  function rangeText(e) {
+    if (!e.end) return shortDay(e.start);
+    var a = d(e.start), b = d(e.end);
+    if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
+      return DAYS[a.getDay()] + '–' + DAYS[b.getDay()] + ', ' + a.getDate() + '–' + b.getDate() + ' ' + MON[a.getMonth()];
+    }
+    return shortDay(e.start) + ' – ' + shortDay(e.end);
+  }
+
+  function visible() {
+    return (E.data ? E.data.events : []).filter(function (e) { return !E.owner || e.owner === E.owner; });
+  }
+  function onDay(dayIso) {
+    return visible().filter(function (e) { return e.start <= dayIso && endOf(e) >= dayIso; });
+  }
+
+  // ───────────── load ─────────────
+  function load() {
+    if (E.loading) return;
+    E.loading = true;
+    if (!E.data) render();
+    A.api('getEvents').then(function (res) { E.loading = false; apply(res); }, function (err) {
+      E.loading = false;
+      if (err.isAuth) return;
+      E.data = E.data || { events: [], categories: [], owners: [], canWrite: false };
+      render();
+      A.toast(A.errText(err));
+    });
+  }
+  function apply(res) {
+    E.data = res;
+    if (!E.month) E.month = monthKey(today());
+    if (!E.view) E.view = window.matchMedia && window.matchMedia('(max-width: 640px)').matches ? 'agenda' : 'month';
+    render();
+  }
+
+  // ───────────── page ─────────────
+  function render() {
+    var box = $('#evBody');
+    if (!box) return;
+    $('#newEventBtn').hidden = !(E.data && E.data.canWrite);
+    $('#exportEventsBtn').hidden = !E.data;
+    if (!E.data) { box.innerHTML = '<div class="mt-empty">Memuat jadwal…</div>'; $('#evTools').innerHTML = ''; return; }
+    var sub = E.data.isAdmin ? 'Jadwal acara semua TL. Pilih TL di bawah untuk melihat kalendernya saja.'
+      : E.data.myTl ? 'Acara dari TL ' + E.data.myTl + ' sepanjang tahun.' + (E.data.canWrite ? '' : ' Export teksnya untuk dibagikan ke leader kamu.')
+      : 'Jadwal acara sepanjang tahun.';
+    $('#evSub').textContent = sub;
+
+    var owners = {};
+    E.data.events.forEach(function (e) { owners[e.owner] = true; });
+    var ownerKeys = Object.keys(owners).sort(function (a, b) { return (a === 'SEMUA' ? -1 : b === 'SEMUA' ? 1 : a.localeCompare(b)); });
+    $('#evTools').innerHTML =
+      '<div class="ev-tabs chips">' +
+      '<button class="chip' + (E.view === 'month' ? ' active' : '') + '" data-ev-view="month">' + IC.cal + 'Kalender</button>' +
+      '<button class="chip' + (E.view === 'agenda' ? ' active' : '') + '" data-ev-view="agenda">Agenda</button></div>' +
+      (ownerKeys.length > 1 ? '<div class="chips ev-owners"><button class="chip' + (E.owner ? '' : ' active') + '" data-ev-owner="">Semua</button>' +
+        ownerKeys.map(function (o) { return '<button class="chip' + (E.owner === o ? ' active' : '') + '" data-ev-owner="' + esc(o) + '">' + esc(ownerLabel(o)) + '</button>'; }).join('') + '</div>' : '') +
+      '<div class="ev-legend">' + E.data.categories.map(function (c) { return '<span><i class="ev-dot ' + (CAT_CLASS[c] || 'c6') + '"></i>' + esc(c) + '</span>'; }).join('') + '</div>';
+
+    box.innerHTML = E.view === 'month' ? monthHtml() : agendaHtml();
+  }
+
+  function chip(e) {
+    return '<button type="button" class="ev-chip ' + (CAT_CLASS[e.category] || 'c6') + '" data-ev-open="' + esc(e.id) + '" title="' + esc(e.title) + '">' +
+      (e.time ? '<b>' + esc(e.time) + '</b> ' : '') + esc(e.title) + '</button>';
+  }
+
+  function monthHtml() {
+    var key = E.month, first = d(key + '-01');
+    var offset = (first.getDay() + 6) % 7; // Monday first
+    var startIso = addDays(key + '-01', -offset);
+    var cells = '';
+    for (var i = 0; i < 42; i++) {
+      var dayIso = addDays(startIso, i);
+      if (i === 35 && monthKey(dayIso) !== key) break; // 5 weeks are enough
+      var list = onDay(dayIso);
+      var cls = 'ev-cell' + (monthKey(dayIso) !== key ? ' out' : '') + (dayIso === today() ? ' today' : '') + (dayIso === E.day ? ' sel' : '');
+      cells += '<div class="' + cls + '" role="gridcell"><button type="button" class="ev-daynum" data-ev-day="' + dayIso + '" aria-label="' + esc(longDay(dayIso)) + (list.length ? ', ' + list.length + ' acara' : '') + '">' + d(dayIso).getDate() + '</button>' +
+        '<div class="ev-chips">' + list.slice(0, 3).map(chip).join('') +
+        (list.length > 3 ? '<button type="button" class="ev-more" data-ev-day="' + dayIso + '">+' + (list.length - 3) + ' lagi</button>' : '') + '</div>' +
+        '<div class="ev-dots">' + list.slice(0, 4).map(function (e) { return '<i class="ev-dot ' + (CAT_CLASS[e.category] || 'c6') + '"></i>'; }).join('') + '</div></div>';
+    }
+    var dayPanel = '';
+    if (E.day && monthKey(E.day) === key) {
+      var list = onDay(E.day);
+      dayPanel = '<section class="ev-daypanel"><h3>' + esc(longDay(E.day)) + '</h3>' +
+        (list.length ? '<div class="ev-list">' + list.map(card).join('') + '</div>' : '<p class="muted">Tidak ada acara.</p>') + '</section>';
+    }
+    return '<div class="panel ev-cal">' +
+      '<div class="ev-cal-head"><button type="button" class="icon-sm" data-ev-month="-1" aria-label="Bulan sebelumnya">' + IC.prev + '</button>' +
+      '<h2>' + esc(monthLabel(key)) + '</h2>' +
+      '<button type="button" class="icon-sm" data-ev-month="1" aria-label="Bulan berikutnya">' + IC.next + '</button>' +
+      '<button type="button" class="btn sm" data-ev-month="0">Hari ini</button></div>' +
+      '<div class="ev-grid" role="grid"><div class="ev-wk">Sen</div><div class="ev-wk">Sel</div><div class="ev-wk">Rab</div><div class="ev-wk">Kam</div><div class="ev-wk">Jum</div><div class="ev-wk">Sab</div><div class="ev-wk">Min</div>' +
+      cells + '</div></div>' + dayPanel;
+  }
+
+  function card(e) {
+    var x = d(e.start);
+    return '<article class="ev-card ' + (CAT_CLASS[e.category] || 'c6') + '" data-ev-open="' + esc(e.id) + '" tabindex="0">' +
+      '<div class="ev-date"><b>' + x.getDate() + '</b><span>' + MON[x.getMonth()] + '</span></div>' +
+      '<div class="ev-main"><div class="ev-title">' + esc(e.title) + '</div>' +
+      '<div class="ev-meta"><span class="ev-cat">' + esc(e.category) + '</span>' +
+      '<span>' + IC.cal + esc(rangeText(e)) + '</span>' +
+      (e.time ? '<span>' + IC.clock + esc(e.time) + '</span>' : '') +
+      (e.place ? '<span>' + IC.pin + esc(e.place) + '</span>' : '') +
+      (E.data.isAdmin || E.owner === '' && e.owner === 'SEMUA' ? '<span>' + IC.user + esc(ownerLabel(e.owner)) + '</span>' : '') + '</div>' +
+      (e.notes ? '<p class="ev-notes">' + esc(e.notes) + '</p>' : '') + '</div></article>';
+  }
+
+  function agendaHtml() {
+    var list = visible().filter(function (e) { return E.past || endOf(e) >= today(); });
+    var toggle = '<label class="mul-all ev-past"><input type="checkbox" id="evPast"' + (E.past ? ' checked' : '') + '><span>Tampilkan acara yang sudah lewat</span></label>';
+    if (!list.length) {
+      return toggle + '<div class="mt-empty">' + IC.cal + '<b>Belum ada acara' + (E.past ? '' : ' mendatang') + '</b><span>' +
+        (E.data.canWrite ? 'Klik <b>Acara baru</b> untuk mengisi jadwal.' : 'TL kamu belum mengisi jadwal.') + '</span></div>';
+    }
+    var last = '', out = toggle;
+    list.forEach(function (e) {
+      var k = monthKey(e.start);
+      if (k !== last) { out += '<div class="mt-month">' + esc(monthLabel(k)) + '</div>'; last = k; }
+      out += card(e);
+    });
+    return '<div class="ev-list">' + out + '</div>';
+  }
+
+  // ───────────── event modal ─────────────
+  function byId(id) { return (E.data.events || []).filter(function (e) { return e.id === id; })[0]; }
+  function show() { $('#evModalWrap').classList.add('open'); $('#evModalWrap').setAttribute('aria-hidden', 'false'); A.updateLock(); }
+  function closeModal() {
+    if (E.f && E.f.saving) return;
+    E.f = null;
+    $('#evModalWrap').classList.remove('open');
+    $('#evModalWrap').setAttribute('aria-hidden', 'true');
+    A.updateLock();
+  }
+  function head(title, sub, cls) {
+    return '<div class="m-head"><div class="m-head-row"><div class="avatar lg ev-avatar ' + (cls || '') + '">' + IC.cal + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="m-name">' + esc(title) + '</div><div class="m-sub">' + esc(sub) + '</div></div>' +
+      '<button class="close-btn dark" data-ev-close aria-label="Tutup">' + IC.close + '</button></div></div>';
+  }
+
+  function openView(e) {
+    E.f = { mode: 'view', id: e.id };
+    $('#evModal').innerHTML = head(e.title, ownerLabel(e.owner), CAT_CLASS[e.category]) +
+      '<div class="m-body"><div class="ev-detail">' +
+      '<div><span>Tanggal</span><b>' + esc(e.end ? longDay(e.start) + ' – ' + longDay(e.end) : longDay(e.start)) + '</b></div>' +
+      (e.time ? '<div><span>Jam</span><b>' + esc(e.time) + '</b></div>' : '') +
+      (e.place ? '<div><span>Lokasi</span><b>' + esc(e.place) + '</b></div>' : '') +
+      '<div><span>Kategori</span><b><i class="ev-dot ' + (CAT_CLASS[e.category] || 'c6') + '"></i> ' + esc(e.category) + '</b></div>' +
+      (e.notes ? '<div class="wide"><span>Catatan</span><p>' + esc(e.notes) + '</p></div>' : '') +
+      '</div></div>' +
+      '<div class="m-footer">' + (e.canEdit
+        ? '<button type="button" class="btn danger-btn" data-ev-del="' + esc(e.id) + '">' + IC.trash + 'Hapus</button><span style="flex:1"></span>' +
+          '<button type="button" class="btn primary" data-ev-edit="' + esc(e.id) + '">' + IC.edit + 'Ubah</button>'
+        : '<span class="vs-ro">Diisi oleh TL</span><span style="flex:1"></span><button type="button" class="btn" data-ev-close>Tutup</button>') + '</div>';
+    show();
+  }
+
+  function openForm(e, dayIso) {
+    var data = E.data;
+    E.f = {
+      mode: 'form', id: e ? e.id : '', title: e ? e.title : '', start: e ? e.start : (dayIso || today()), end: e ? e.end : '',
+      time: e ? e.time : '', place: e ? e.place : '', category: e ? e.category : 'Ibadah', notes: e ? e.notes : '',
+      owner: e ? e.owner : (E.owner || (data.isAdmin ? 'SEMUA' : data.myTl)), saving: false,
+    };
+    renderForm();
+    show();
+    setTimeout(function () { var x = $('#evTitle'); if (x) x.focus(); }, 250);
+  }
+  function formOk() {
+    var f = E.f;
+    return f.title.trim().length >= 2 && !!f.start && (!f.end || f.end >= f.start) && !!f.category;
+  }
+  function renderForm() {
+    var f = E.f, data = E.data;
+    $('#evModal').innerHTML = head(f.id ? 'Ubah acara' : 'Acara baru', data.isAdmin ? 'Pilih kalender TL atau Semua TL' : ownerLabel(data.myTl)) +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field wide"><label for="evTitle">Nama acara</label><input id="evTitle" maxlength="120" value="' + esc(f.title) + '" placeholder="mis. Christmas Service"></div>' +
+      (data.isAdmin ? '<div class="field wide"><label for="evOwner">Kalender</label><select id="evOwner" class="mul-select">' +
+        data.owners.map(function (o) { return '<option value="' + esc(o) + '"' + (o === f.owner ? ' selected' : '') + '>' + esc(ownerLabel(o)) + '</option>'; }).join('') + '</select></div>' : '') +
+      '<div class="field"><label for="evStart">Tanggal mulai</label><input id="evStart" type="date" value="' + esc(f.start) + '"></div>' +
+      '<div class="field"><label for="evEnd">Tanggal selesai <span class="opt">opsional</span></label><input id="evEnd" type="date" min="' + esc(f.start) + '" value="' + esc(f.end) + '">' +
+      (f.end && f.end < f.start ? '<div class="err">Tidak boleh sebelum tanggal mulai.</div>' : '<div class="hint soft">Untuk acara beberapa hari.</div>') + '</div>' +
+      '<div class="field"><label for="evTime">Jam <span class="opt">opsional</span></label><input id="evTime" maxlength="40" value="' + esc(f.time) + '" placeholder="mis. 19.00"></div>' +
+      '<div class="field"><label for="evPlace">Lokasi <span class="opt">opsional</span></label><input id="evPlace" maxlength="120" value="' + esc(f.place) + '" placeholder="mis. GMS Puri"></div>' +
+      '<div class="field wide"><label>Kategori</label><div class="chips seg tight">' + data.categories.map(function (c) {
+        return '<button type="button" class="chip' + (f.category === c ? ' active' : '') + '" data-ev-cat="' + esc(c) + '"><i class="ev-dot ' + (CAT_CLASS[c] || 'c6') + '"></i>' + esc(c) + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="field wide"><label for="evNotes">Catatan <span class="opt">opsional</span></label><textarea id="evNotes" rows="3" maxlength="1000" placeholder="mis. Dresscode putih, kumpul 18.30">' + esc(f.notes) + '</textarea></div>' +
+      '</div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="evErr"></span><button type="button" class="btn" data-ev-close>Batal</button>' +
+      '<button type="button" class="btn primary" id="evSave"' + (formOk() ? '' : ' disabled') + '><span class="spin"></span>' + IC.check + '<span id="evSaveLabel">Simpan acara</span></button></div>';
+  }
+
+  function save() {
+    var f = E.f;
+    if (!f || f.saving || !formOk()) return;
+    f.saving = true;
+    $('#evSave').disabled = true; $('#evSave').classList.add('loading'); $('#evSaveLabel').textContent = 'Menyimpan…';
+    A.api('saveEvent', { id: f.id, owner: f.owner, title: f.title, start: f.start, end: f.end, time: f.time, place: f.place, category: f.category, notes: f.notes })
+      .then(function (res) {
+        f.saving = false;
+        closeModal();
+        E.month = monthKey(f.start); E.day = f.start;
+        apply(res);
+        A.toast('Acara tersimpan ✨');
+      }, function (err) {
+        f.saving = false;
+        if (err.isAuth || !$('#evSave')) return;
+        $('#evSave').disabled = false; $('#evSave').classList.remove('loading'); $('#evSaveLabel').textContent = 'Simpan acara';
+        $('#evErr').textContent = A.errText(err);
+      });
+  }
+
+  function remove(id) {
+    var e = byId(id);
+    if (!e || !window.confirm('Hapus acara "' + e.title + '"?')) return;
+    A.api('deleteEvent', id).then(function (res) { E.f = null; closeModal(); apply(res); A.toast('Acara dihapus'); }, function (err) {
+      if (!err.isAuth) A.toast(A.errText(err));
+    });
+  }
+
+  // ───────────── export ─────────────
+  function exportTitle() {
+    var o = E.owner || (E.data.isAdmin ? '' : E.data.myTl);
+    return '*JADWAL ACARA' + (o && o !== 'SEMUA' ? ' — TL ' + o.toUpperCase() : '') + '*';
+  }
+  /** WhatsApp-style text of the events overlapping [from, to] (yyyy-mm); all when from is empty. */
+  function exportText(from, to, withNotes) {
+    var list = visible();
+    var lo = from ? from + '-01' : '', hi = to ? addDays(addMonths(to, 1) + '-01', -1) : '';
+    if (from) list = list.filter(function (e) { return e.start <= hi && endOf(e) >= lo; });
+    var lines = [exportTitle(), '_' + (from ? (from === to ? monthLabel(from) : shortMonth(from) + ' – ' + shortMonth(to)) : 'Semua acara') + '_'];
+    if (!list.length) { lines.push('', 'Belum ada acara.'); return lines.join('\n'); }
+    var last = '';
+    list.forEach(function (e) {
+      var k = monthKey(lo && e.start < lo ? lo : e.start);
+      if (k !== last) { lines.push('', '*' + monthLabel(k).toUpperCase() + '*'); last = k; }
+      lines.push('• ' + rangeText(e) + (e.time ? ' · ' + e.time : '') + ' — ' + e.title + (e.place ? ' 📍 ' + e.place : '') +
+        (E.data.isAdmin && !E.owner ? ' (' + ownerLabel(e.owner) + ')' : ''));
+      if (withNotes && e.notes) lines.push('   _' + e.notes.replace(/\s*\n\s*/g, ' ') + '_');
+    });
+    return lines.join('\n');
+  }
+  function shortMonth(key) { return MON[+key.slice(5, 7) - 1] + ' ' + key.slice(0, 4); }
+
+  function monthOptions() {
+    var keys = {}, now = monthKey(today());
+    for (var i = -12; i <= 24; i++) keys[addMonths(now, i)] = true;
+    visible().forEach(function (e) { keys[monthKey(e.start)] = true; keys[monthKey(endOf(e))] = true; });
+    return Object.keys(keys).sort();
+  }
+
+  function openExport() {
+    var now = monthKey(today());
+    E.f = { mode: 'export', range: 'months', from: now, to: addMonths(now, 3), notes: false };
+    renderExport();
+    show();
+  }
+  function renderExport() {
+    var f = E.f, opts = monthOptions();
+    var sel = function (id, val) {
+      return '<select id="' + id + '" class="mul-select"' + (f.range === 'all' ? ' disabled' : '') + '>' + opts.map(function (k) {
+        return '<option value="' + k + '"' + (k === val ? ' selected' : '') + '>' + esc(monthLabel(k)) + '</option>';
+      }).join('') + '</select>';
+    };
+    var text = exportText(f.range === 'all' ? '' : f.from, f.range === 'all' ? '' : (f.to < f.from ? f.from : f.to), f.notes);
+    $('#evModal').innerHTML = head('Export jadwal', 'Teks siap tempel ke WhatsApp') +
+      '<div class="m-body mt-form"><div class="form-grid">' +
+      '<div class="field wide"><label>Rentang</label><div class="chips seg tight">' +
+      '<button type="button" class="chip' + (f.range === 'all' ? ' active' : '') + '" data-ev-range="all">Semua acara</button>' +
+      '<button type="button" class="chip' + (f.range === 'months' ? ' active' : '') + '" data-ev-range="months">Rentang bulan</button></div></div>' +
+      '<div class="field"><label for="evFrom">Dari bulan</label>' + sel('evFrom', f.from) + '</div>' +
+      '<div class="field"><label for="evTo">Sampai bulan</label>' + sel('evTo', f.to < f.from ? f.from : f.to) + '</div>' +
+      '<div class="field wide"><label class="mul-all"><input type="checkbox" id="evNotesToggle"' + (f.notes ? ' checked' : '') + '><span>Sertakan catatan acara</span></label></div>' +
+      '<div class="field wide"><label for="evText">Pratinjau</label><textarea id="evText" class="ev-export" rows="12" readonly>' + esc(text) + '</textarea></div>' +
+      '</div></div>' +
+      '<div class="m-footer"><span class="ldp-err" id="evErr"></span><button type="button" class="btn" data-ev-close>Tutup</button>' +
+      '<button type="button" class="btn primary" id="evCopy">' + IC.copy + '<span id="evCopyLabel">Salin teks</span></button></div>';
+  }
+
+  // ───────────── events ─────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if (t.closest('#newEventBtn')) return E.data && openForm(null, E.view === 'month' && E.day ? E.day : '');
+    if (t.closest('#exportEventsBtn')) return E.data && openExport();
+    if ((el = t.closest('[data-ev-view]'))) { E.view = el.dataset.evView; return render(); }
+    if ((el = t.closest('[data-ev-owner]'))) { E.owner = el.dataset.evOwner; return render(); }
+    if ((el = t.closest('[data-ev-month]'))) {
+      var n = +el.dataset.evMonth;
+      E.month = n ? addMonths(E.month, n) : monthKey(today());
+      if (!n) E.day = today();
+      return render();
+    }
+    if ((el = t.closest('[data-ev-open]'))) { var ev = byId(el.dataset.evOpen); return ev && openView(ev); }
+    if ((el = t.closest('[data-ev-day]'))) { E.day = E.day === el.dataset.evDay ? '' : el.dataset.evDay; return render(); }
+    if (!E.f) return;
+    if (t.closest('[data-ev-close]')) return closeModal();
+    if ((el = t.closest('[data-ev-edit]'))) return openForm(byId(el.dataset.evEdit));
+    if ((el = t.closest('[data-ev-del]'))) return remove(el.dataset.evDel);
+    if (t.closest('#evSave')) return save();
+    if ((el = t.closest('[data-ev-cat]'))) { E.f.category = el.dataset.evCat; return renderForm(); }
+    if ((el = t.closest('[data-ev-range]'))) { E.f.range = el.dataset.evRange; return renderExport(); }
+    if (t.closest('#evCopy')) {
+      var text = $('#evText').value;
+      return A.copyText(text).then(function () {
+        $('#evCopyLabel').textContent = 'Tersalin ✓';
+        A.toast('Jadwal tersalin. Tempel di WhatsApp.');
+        setTimeout(function () { var l = $('#evCopyLabel'); if (l) l.textContent = 'Salin teks'; }, 1800);
+      }, function () { $('#evText').select(); $('#evErr').textContent = 'Salin otomatis gagal. Teks sudah dipilih, tekan Ctrl+C / salin.'; });
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('.ev-card[data-ev-open]')) { var ev = byId(e.target.dataset.evOpen); if (ev) openView(ev); }
+    if (E.f && e.key === 'Escape') { e.stopPropagation(); closeModal(); }
+  }, true);
+
+  document.addEventListener('input', function (e) {
+    var f = E.f, id = e.target.id;
+    if (!f || f.mode !== 'form') return;
+    var map = { evTitle: 'title', evTime: 'time', evPlace: 'place', evNotes: 'notes' };
+    if (map[id]) { f[map[id]] = e.target.value; $('#evSave').disabled = !formOk(); }
+  });
+
+  document.addEventListener('change', function (e) {
+    var f = E.f, id = e.target.id;
+    if (id === 'evPast') { E.past = e.target.checked; return render(); }
+    if (!f) return;
+    if (f.mode === 'form') {
+      if (id === 'evStart') { f.start = e.target.value; if (f.end && f.end < f.start) f.end = ''; return renderForm(); }
+      if (id === 'evEnd') { f.end = e.target.value; return renderForm(); }
+      if (id === 'evOwner') { f.owner = e.target.value; }
+    }
+    if (f.mode === 'export') {
+      if (id === 'evFrom') { f.from = e.target.value; if (f.to < f.from) f.to = f.from; return renderExport(); }
+      if (id === 'evTo') { f.to = e.target.value; return renderExport(); }
+      if (id === 'evNotesToggle') { f.notes = e.target.checked; return renderExport(); }
+    }
+  });
+
+  // ───────────── public ─────────────
+  window.AOGViews = window.AOGViews || {};
+  window.AOGViews.events = function () { render(); load(); };
+  window.AOGEvents = {
+    reset: function () {
+      E.data = null; E.view = ''; E.month = ''; E.day = ''; E.owner = ''; E.past = false;
+      if (E.f) E.f.saving = false;
+      E.f = null;
+      var w = $('#evModalWrap');
+      if (w) { w.classList.remove('open'); w.setAttribute('aria-hidden', 'true'); }
+    },
+  };
+})();
+</script>

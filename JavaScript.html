@@ -281,8 +281,8 @@
     }).join('') + '</div>';
   }
   function updateLock() {
-    var open = $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
-      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open, #visiModalWrap.open, #usrModalWrap.open');
+    var open = document.body.classList.contains('nav-open') || $('#drawer').classList.contains('open') || $('#modalWrap').classList.contains('open') ||
+      !!document.querySelector('#mtModalWrap.open, #ldpModalWrap.open, #locModalWrap.open, #cgModalWrap.open, #rsModalWrap.open, #mulModalWrap.open, #visitModalWrap.open, #visiModalWrap.open, #usrModalWrap.open, #evModalWrap.open, #bdModalWrap.open');
     document.body.classList.toggle('locked', open);
   }
 
@@ -317,6 +317,7 @@
     $('#sheetLink').href = data.spreadsheetUrl || '#';
     $('#sheetLink').style.display = data.spreadsheetUrl ? '' : 'none';
     renderUser(data.user);
+    $('#navUsers').hidden = $('#navAccountGroup').hidden = !can('users');
     enterApp();
     $('#brandSub').textContent = 'Coach Dashboard · ' + data.sheetName;
     renderHero();
@@ -328,6 +329,7 @@
     if (window.AOGCg) window.AOGCg.onData();
     if (window.AOGMultiply) window.AOGMultiply.onData();
     if (window.AOGVisits) window.AOGVisits.onData();
+    if (window.AOGBirthdays) window.AOGBirthdays.onData();
     if (!quiet && window.AOGMeetings) window.AOGMeetings.onDashboard();
     if (!quiet && window.AOGLdp) window.AOGLdp.onDashboard();
     if (!quiet && window.AOGLocations) window.AOGLocations.onDashboard();
@@ -1121,6 +1123,7 @@
   /** Drops the session and everything loaded with it, then shows the login form. */
   function signOut(message) {
     saveToken('');
+    document.body.classList.remove('nav-open');
     state.edit = null;
     state.data = null; state.people = []; state.byId = {}; state.coaches = [];
     $('#modalWrap').classList.remove('open');
@@ -1138,6 +1141,8 @@
     if (window.AOGVisi) window.AOGVisi.reset();
     if (window.AOGSwot) window.AOGSwot.reset();
     if (window.AOGUsers) window.AOGUsers.reset();
+    if (window.AOGEvents) window.AOGEvents.reset();
+    if (window.AOGBirthdays) window.AOGBirthdays.reset();
     showLogin(message);
   }
 
@@ -1180,6 +1185,54 @@
     input.type = input.type === 'password' ? 'text' : 'password';
     input.focus();
   });
+
+  /** Copies text to the clipboard (falls back to a hidden textarea where the Clipboard API is refused). */
+  function copyText(text) {
+    function fallback() {
+      return new Promise(function (resolve, reject) {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        if (ok) resolve(); else reject(new Error('Salin gagal'));
+      });
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).catch(fallback);
+    return fallback();
+  }
+
+  // ───────────── Sidebar ─────────────
+  var NAV_KEY = 'aogpuri.nav';
+  function isDrawerNav() { return !!(window.matchMedia && window.matchMedia('(max-width: 1024px)').matches); }
+  function setNavOpen(open) {
+    document.body.classList.toggle('nav-open', open);
+    $('#navToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    updateLock();
+    if (open) {
+      var active = $('#mainNav .nav-item.active') || $('#mainNav .nav-item');
+      setTimeout(function () { if (active) active.focus(); }, 60);
+    }
+  }
+  $('#navToggle').addEventListener('click', function () { setNavOpen(!document.body.classList.contains('nav-open')); });
+  $('#navClose').addEventListener('click', function () { setNavOpen(false); $('#navToggle').focus(); });
+  $('#sidebarScrim').addEventListener('click', function () { setNavOpen(false); });
+  $('#mainNav').addEventListener('click', function (e) {
+    if (e.target.closest('.nav-item') && isDrawerNav()) setNavOpen(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.body.classList.contains('nav-open')) { setNavOpen(false); $('#navToggle').focus(); }
+  });
+  $('#navCollapse').addEventListener('click', function () {
+    var collapsed = !document.body.classList.contains('nav-collapsed');
+    document.body.classList.toggle('nav-collapsed', collapsed);
+    $('#navCollapse').title = collapsed ? 'Lebarkan menu' : 'Ciutkan menu';
+    $('#navCollapse').setAttribute('aria-label', $('#navCollapse').title);
+    try { localStorage.setItem(NAV_KEY, collapsed ? 'collapsed' : ''); } catch (err) { /* ignore */ }
+  });
+  try { if (localStorage.getItem(NAV_KEY) === 'collapsed') document.body.classList.add('nav-collapsed'); } catch (err) { /* ignore */ }
+  window.addEventListener('resize', function () { if (!isDrawerNav() && document.body.classList.contains('nav-open')) setNavOpen(false); });
 
   // ───────────── Theme ─────────────
   /** Follows the device until the viewer picks; the choice is remembered on this device. */
@@ -1298,7 +1351,7 @@
     POSITIONS: POSITIONS, isActive: isActive, canCoach: canCoach, seesMany: seesMany, can: can,
     callServer: callServer, load: function (r) { load(!!r); }, saveToken: function (t) { saveToken(t); }, signOut: function (m) { signOut(m); },
     enterApp: enterApp, renderUser: renderUser,
-    cgHealth: cgHealth, healthBadge: healthBadge,
+    cgHealth: cgHealth, healthBadge: healthBadge, copyText: copyText, waLink: waLink,
     parseLooseDate: parseLooseDate, toIso: toIso, LDP_STEPS: LDP_STEPS,
     /** Show fresh dashboard data returned by another save (without reloading meetings / LDP). */
     applyData: function (data) { onData(data, false, true); },

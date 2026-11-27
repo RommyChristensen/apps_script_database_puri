@@ -69,6 +69,9 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 | `SwotUi.html` | SWOT tab in the coach drawer |
 | `Users.gs` | Kelola pengguna: accounts, permissions, default password, revoke |
 | `UsersUi.html` | User menu, Pengguna page, forced / voluntary password change |
+| `Events.gs` | Jadwal Acara: event calendar per TL |
+| `EventsUi.html` | Jadwal page: month calendar, agenda, event form, WhatsApp export |
+| `BirthdaysUi.html` | Dashboard birthday countdown and greeting templates |
 | `CgUi.html` | CG overview page and the CG info form (`updateCgInfo` in `Code.gs`) |
 | `Locations.gs` | Lokasi CG: list, set location, Maps link parsing, geocoding (cached), domisili layer |
 | `LocationsUi.html` | Lokasi page: Leaflet map, CG list, edit form with a mini map |
@@ -81,8 +84,8 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 
 1. Open the spreadsheet → **Extensions → Apps Script**.
 2. Create the files with the same names and paste in their contents:
-   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits`, `Visi`, `Swot` and `Users`, plus HTML files named `Index`,
-   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi`, `VisiUi`, `SwotUi` and `UsersUi`.
+   script files `Code`, `Auth`, `Meetings`, `Ldp`, `Locations`, `Restructure`, `Multiply`, `Visits`, `Visi`, `Swot`, `Users` and `Events`, plus HTML files named `Index`,
+   `Stylesheet`, `JavaScript`, `MeetingsUi`, `LdpUi`, `LocationsUi`, `CgUi`, `RestructureUi`, `MultiplyUi`, `VisitsUi`, `VisiUi`, `SwotUi`, `UsersUi`, `EventsUi` and `BirthdaysUi`.
 3. ⚙️ **Project Settings** → turn on *Show "appsscript.json"* → paste the contents of `appsscript.json` into it.
 4. **Deploy → New deployment** → type **Web app** (or *Manage deployments → ✏️* for the existing one):
    - *Execute as*: **Me** (the spreadsheet owner)
@@ -95,6 +98,34 @@ A Google Apps Script web app that reads the **DATABASE tab** (the first tab of
 spreadsheet (File → Make a copy) copies the script with it and works on its own data, but every copy needs its
 own deployment (Deploy → New deployment) and its own accounts in the Authentication tab. Change
 `CONFIG.APP_TITLE` in `Code.gs` to the church's name.
+
+## Menu (sidebar)
+
+The menu is a sidebar on the left. On a laptop or desktop it can be collapsed to icons ("Ciutkan", remembered per
+device). On tablets and phones (≤ 1024px) it is hidden behind the burger button in the top bar and slides in;
+choosing a menu item, tapping outside or pressing Escape closes it. "Kelola pengguna" appears in the sidebar for
+accounts with that permission.
+
+## Jadwal Acara (event calendar)
+
+- **Jadwal** menu: a month calendar (Monday first; multi-day events show on every day) and an Agenda list.
+- Each **TL** keeps their own calendar; coaches see their TL's calendar read-only. **Admins** see every calendar,
+  can filter per TL and can post events for a TL or for **Semua TL** (shown to everyone).
+- An event: name, start date, optional end date (multi-day), optional time and location, category (Ibadah,
+  Camp / Retreat, Training / Kelas, Outreach, Rapat, Lainnya) and notes. Writing needs the `events` permission.
+- **Export teks**: all events or a range of months, as WhatsApp-ready text grouped per month, optionally with
+  notes, with a copy button.
+- Stored in the **Jadwal Acara** tab (created automatically): ID, TL, JUDUL, MULAI, SELESAI, JAM, LOKASI,
+  KATEGORI, CATATAN, DIBUAT OLEH, DIBUAT PADA, DIPERBARUI.
+
+## Ulang tahun terdekat (dashboard)
+
+- Reads the TTL column (e.g. "14 March 2008") of everyone the account can see (Non-Aktif excluded). The nearest
+  birthday is shown with a live countdown (days, hours, minutes), and the next ones in the coming 30 days below it.
+- **Ucapkan** opens the greeting from the account's template, editable before copying, with **Kirim WhatsApp**
+  when there is a phone number.
+- **Template ucapan**: each account keeps its own default template (placeholders `{nama}`, `{panggilan}`, `{umur}`,
+  `{cg}`, `{tanggal}`), stored in Script Properties as `BDAY_TPL:<username>`. Empty = the built-in template.
 
 ## Tambah anggota
 
@@ -127,6 +158,7 @@ Open it from the user menu (click your name in the top bar). Everyone also gets 
 | `restructure` | Pindah CG, Multiplikasi, info & lokasi CG | Coach, TL, Admin |
 | `delete` | Hapus data jemaat (archived, own coach group) | Admin |
 | `visi` | Visi & SWOT (TL / admin only) | TL, Admin |
+| `events` | Jadwal Acara (TL / admin only) | TL, Admin |
 | `users` | Kelola pengguna (TL / admin only) | TL, Admin |
 
   Admins always have everything. Pertemuan and Visit CG are open to every account.

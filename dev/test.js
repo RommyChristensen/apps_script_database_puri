@@ -9,7 +9,7 @@ const assert = require('assert');
 const createMockServices = require('./mock-apps-script');
 const { demoValues, parseCsv } = require('./build-preview');
 
-const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs', 'Swot.gs', 'Users.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+const code = ['Code.gs', 'Auth.gs', 'Meetings.gs', 'Ldp.gs', 'Locations.gs', 'Restructure.gs', 'Multiply.gs', 'Visits.gs', 'Visi.gs', 'Swot.gs', 'Users.gs', 'Events.gs'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
 
 const AUTH_HEADER = ['USERNAME', 'PASSWORD', 'COACH', 'ROLE'];
 const defaultAccounts = () => [AUTH_HEADER, ['admin', 'admin-pass', '', 'ADMIN']];
@@ -29,7 +29,7 @@ function boot(values, opts) {
     PropertiesService: mocks.PropertiesService, Maps: mocks.Maps, UrlFetchApp: mocks.UrlFetchApp,
   };
   vm.createContext(ctx);
-  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, getUsers, saveUser, setUserActive, resetUserPassword, deleteUser, setDefaultPassword, changePassword, addPerson, MILESTONES };', ctx);
+  vm.runInContext(code + '\nthis.raw = { getDashboardData, updatePerson, login, logout, getMeetings, saveMeeting, setTaskDone, deleteMeeting, getLdpProgress, saveLdp, getCgLocations, setCgLocation, previewLocation, updateCgInfo, movePerson, deletePerson, multiplyCg, getMultiplications, getVisits, scheduleVisit, logVisit, deleteVisit, getVisi, saveVisi, deleteVisi, addVisiMilestone, deleteVisiMilestone, getSwot, saveSwot, getUsers, saveUser, setUserActive, resetUserPassword, deleteUser, setDefaultPassword, changePassword, addPerson, getEvents, saveEvent, deleteEvent, saveBirthdayTemplate, MILESTONES };', ctx);
   const [user, pass] = opts.as || ['admin', 'admin-pass'];
   const token = ctx.raw.login(user, pass).token;
   mocks.writes.length = 0; // ignore the password-hash write from this setup login
@@ -1026,6 +1026,53 @@ test('add member: duplicate names warn first, access and input are checked', () 
   assert.throws(() => s.raw.addPerson(angie, { cg: mine.cg, name: 'Orang Baru', gender: 'Male', phone: '12' }), /No HP/);
   // TL can add to any CG under them
   assert.ok(s.raw.addPerson(s.token, { cg: carlaCg, name: 'Teman Carla', gender: 'Male' }).added);
+});
+
+console.log('Events.gs + birthday template');
+test('events: TL writes own, coach sees own TL + SEMUA read-only, admin sees and writes all', () => {
+  const { s, admin, angie } = vSetup();
+  const budi = s.raw.login('budi', 'budi-pass').token;
+  const ev = (o) => Object.assign({ title: 'Christmas Service', start: '2026-12-13', time: '19.00', place: 'GMS Puri', category: 'Ibadah' }, o);
+  let res = s.raw.saveEvent(s.token, ev());
+  assert.deepStrictEqual([res.events[0].owner, res.events[0].canEdit, res.myTl], ['Rommy Christensen', true, 'Rommy Christensen']);
+  s.raw.saveEvent(s.token, ev({ title: 'Youth Camp', start: '2026-12-19', end: '2026-12-21', category: 'Camp / Retreat', owner: 'Budi' }));
+  s.raw.saveEvent(budi, ev({ title: 'Rapat Budi', start: '2026-12-02', category: 'Rapat' }));
+  s.raw.saveEvent(admin, ev({ title: 'Natal Gereja', start: '2026-12-25', category: 'Ibadah', owner: 'semua' }));
+  assert.throws(() => s.raw.saveEvent(admin, ev({ owner: 'Orang Lain' })), /tidak ditemukan/);
+  // the TL cannot pick another owner: their event stays theirs
+  const camp = s.raw.getEvents(s.token).events.find((e) => e.title === 'Youth Camp');
+  assert.deepStrictEqual([camp.owner, camp.end], ['Rommy Christensen', '2026-12-21']);
+  const seen = s.raw.getEvents(angie);
+  assert.deepStrictEqual(clone(seen.events.map((e) => e.title)), ['Christmas Service', 'Youth Camp', 'Natal Gereja']);
+  assert.ok(seen.events.every((e) => !e.canEdit) && !seen.canWrite);
+  assert.throws(() => s.raw.saveEvent(angie, ev()), /Hanya TL atau admin/);
+  assert.throws(() => s.raw.deleteEvent(budi, camp.id), /milik kamu/);
+  assert.strictEqual(s.raw.getEvents(admin).events.length, 4);
+  assert.deepStrictEqual(clone(s.raw.getEvents(admin).owners), ['SEMUA', 'Budi', 'Rommy Christensen']);
+  s.raw.deleteEvent(s.token, camp.id);
+  assert.ok(!s.raw.getEvents(s.token).events.some((e) => e.id === camp.id));
+});
+
+test('events: validation and the events permission', () => {
+  const { s, admin } = vSetup();
+  assert.throws(() => s.raw.saveEvent(s.token, { title: 'x', start: '2026-12-13', category: 'Ibadah' }), /nama acara/);
+  assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '', category: 'Ibadah' }), /tanggal mulai/);
+  assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', end: '2026-12-10', category: 'Ibadah' }), /sebelum/);
+  assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', category: 'Pesta' }), /kategori/);
+  s.raw.saveUser(admin, { username: 'rommy', role: 'TL', coach: 'Rommy Christensen', perms: ['edit', 'restructure', 'visi', 'users'] });
+  assert.throws(() => s.raw.saveEvent(s.token, { title: 'Camp', start: '2026-12-13', category: 'Ibadah' }), /tidak punya izin/);
+  assert.strictEqual(s.raw.getEvents(s.token).canWrite, false);
+});
+
+test('birthday template: saved per account, empty resets to built-in', () => {
+  const { s, angie } = vSetup();
+  assert.strictEqual(s.raw.getDashboardData(angie).birthdayTemplate, '');
+  s.raw.saveBirthdayTemplate(angie, 'HBD {panggilan}! Tuhan memberkati di umur {umur} 🎉');
+  assert.strictEqual(s.raw.getDashboardData(angie).birthdayTemplate, 'HBD {panggilan}! Tuhan memberkati di umur {umur} 🎉');
+  assert.strictEqual(s.raw.getDashboardData(s.token).birthdayTemplate, '', 'other accounts unaffected');
+  assert.throws(() => s.raw.saveBirthdayTemplate(angie, 'x'.repeat(1001)), /1000/);
+  s.raw.saveBirthdayTemplate(angie, '');
+  assert.strictEqual(s.raw.getDashboardData(angie).birthdayTemplate, '');
 });
 
 console.log('Users.gs');
