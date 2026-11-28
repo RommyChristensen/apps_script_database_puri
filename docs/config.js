@@ -7,6 +7,6 @@
  *   (Paste it between the quotes. Leave it empty to see the setup screen.)
  */
 window.AOG_LAUNCHER = {
-  APP_URL: '',
+  APP_URL: 'https://script.google.com/macros/s/AKfycbyoPGCVRAzO0ofdq-gBRF81QRp_0e80at8-u6ECZxVEboSuEsW8dJTgO7pwuXk7YJ6Cgg/exec',
   NAME: 'AOG Puri Dashboard',
 };
