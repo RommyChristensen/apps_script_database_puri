@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AOG Puri Dashboard</title>
+  <meta name="description" content="Dashboard coach AOG Youth Puri.">
+  <meta name="theme-color" content="#f5f9ff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a1222" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AOG Puri">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <style>
+    :root {
+      --bg: #f5f9ff; --card: #ffffff; --ink: #0f1e3d; --muted: #5b6b86; --line: #dbe6f6;
+      --blue: #2563eb; --sky: #38bdf8; --warn-bg: #fff7e6; --warn-line: #f5d58a; --warn-ink: #7a4b00;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0a1222; --card: #111b30; --ink: #e6edf9; --muted: #8d9bb7; --line: #22314f;
+        --warn-bg: #2a2010; --warn-line: #6b5420; --warn-ink: #f3d08a; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+      overflow: hidden;
+    }
+    #frame { position: absolute; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+      width: calc(100% - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+      height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); border: 0; background: var(--bg); }
+    .screen { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px 20px; background: var(--bg); }
+    .screen[hidden] { display: none; }
+    .card { width: min(420px, 100%); text-align: center; display: grid; gap: 14px; justify-items: center; }
+    .logo { width: 88px; height: 88px; border-radius: 22px; box-shadow: 0 16px 36px -14px rgba(37, 99, 235, .65); animation: pop .6s cubic-bezier(.34, 1.56, .64, 1) both; }
+    h1 { margin: 0; font-size: 21px; letter-spacing: -.01em; }
+    p { margin: 0; color: var(--muted); }
+    .spin { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--blue); animation: spin .8s linear infinite; }
+    .btns { display: grid; gap: 10px; width: 100%; margin-top: 4px; }
+    .btn { display: block; width: 100%; padding: 13px 16px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink);
+      font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
+    .btn.primary { border: 0; color: #fff; background: linear-gradient(135deg, #2563eb, #38bdf8); box-shadow: 0 10px 22px -12px rgba(37, 99, 235, .8); }
+    .btn:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+    .hint { text-align: left; font-size: 13.5px; color: var(--warn-ink); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 12px; padding: 10px 12px; }
+    code { background: rgba(37, 99, 235, .12); padding: 1px 6px; border-radius: 6px; font-size: .92em; overflow-wrap: anywhere; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .spin, .logo { animation: none; } }
+  </style>
+</head>
+<body>
+  <iframe id="frame" title="AOG Puri Dashboard" allow="clipboard-write" referrerpolicy="no-referrer" hidden></iframe>
+
+  <!-- loading -->
+  <main class="screen" id="loading" hidden>
+    <div class="card">
+      <img class="logo" src="icons/icon-192.png" alt="" width="88" height="88">
+      <h1>AOG Puri Dashboard</h1>
+      <div class="spin" role="status" aria-label="Memuat"></div>
+      <p>Memuat aplikasi…</p>
+    </div>
+  </main>
+
+  <!-- setup (no URL yet) -->
+  <main class="screen" id="setup" hidden>
+    <div class="card">
+      <img class="logo" src="icons/icon-192.png" alt="" width="88" height="88">
+      <h1>Hampir siap</h1>
+      <p>Launcher ini belum tahu alamat aplikasinya.</p>
+      <div class="hint">Buka file <code>docs/config.js</code>, isi <code>APP_URL</code> dengan link Apps Script (berakhiran <code>/exec</code>), lalu simpan dan publikasikan lagi.</div>
+    </div>
+  </main>
+
+  <!-- problem / offline -->
+  <main class="screen" id="problem" hidden>
+    <div class="card">
+      <img class="logo" src="icons/icon-192.png" alt="" width="88" height="88">
+      <h1 id="problemTitle">Aplikasi belum bisa dimuat</h1>
+      <p id="problemText"></p>
+      <div class="btns">
+        <button type="button" class="btn primary" id="retry">Coba lagi</button>
+        <a class="btn" id="openBrowser" target="_blank" rel="noopener">Buka di browser</a>
+      </div>
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var cfg = window.AOG_LAUNCHER || {};
+      var url = String(cfg.APP_URL || '').trim();
+      var frame = document.getElementById('frame');
+      var screens = { loading: document.getElementById('loading'), setup: document.getElementById('setup'), problem: document.getElementById('problem') };
+      var TIMEOUT_MS = 15000;
+      var timer = null, ready = false;
+
+      function show(which) {
+        Object.keys(screens).forEach(function (k) { screens[k].hidden = k !== which; });
+        frame.hidden = which !== 'app';
+      }
+      function problem(title, text) {
+        clearTimeout(timer);
+        document.getElementById('problemTitle').textContent = title;
+        document.getElementById('problemText').textContent = text;
+        show('problem');
+      }
+      function validUrl() {
+        try { var u = new URL(url); return u.protocol === 'https:' && /(^|\.)google\.com$/.test(u.hostname); } catch (e) { return false; }
+      }
+
+      function start() {
+        ready = false;
+        if (!url) return show('setup');
+        if (!validUrl()) return problem('Alamat tidak valid', 'APP_URL di config.js harus link https://script.google.com/… yang berakhiran /exec.');
+        if (navigator.onLine === false) return problem('Tidak ada koneksi', 'Sambungkan ke internet, lalu coba lagi.');
+        document.getElementById('openBrowser').href = url;
+        show('loading');
+        frame.hidden = true;
+        frame.src = url;
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          if (!ready) problem('Aplikasi belum bisa dimuat',
+            'Pastikan Apps Script sudah di-deploy dengan versi terbaru (yang mengizinkan tampil di launcher), atau buka lewat browser.');
+        }, TIMEOUT_MS);
+      }
+
+      // The dashboard tells the launcher when it has really loaded (see JavaScript.html).
+      window.addEventListener('message', function (e) {
+        var okOrigin = false;
+        try { okOrigin = /(^|\.)(googleusercontent|google)\.com$/.test(new URL(e.origin).hostname); } catch (err) { /* opaque origin */ }
+        if (!okOrigin || !e.data || e.data.aogpuri !== 'ready') return;
+        ready = true;
+        clearTimeout(timer);
+        show('app');
+      });
+
+      document.getElementById('retry').addEventListener('click', function () { frame.src = 'about:blank'; setTimeout(start, 50); });
+      window.addEventListener('online', function () { if (!screens.problem.hidden) start(); });
+      window.addEventListener('offline', function () { if (!ready) problem('Tidak ada koneksi', 'Sambungkan ke internet, lalu coba lagi.'); });
+
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () { /* the launcher still works without it */ });
+      start();
+    })();
+  </script>
+</body>
+</html>

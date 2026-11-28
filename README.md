@@ -170,6 +170,13 @@ Open it from the user menu (click your name in the top bar). Everyone also gets 
 - The page adds these columns to the Authentication tab when needed: CATATAN, STATUS, IZIN, WAJIB GANTI,
   TERAKHIR LOGIN, DIPERBARUI OLEH.
 
+## Installable launcher (docs/)
+
+`docs/` is a small PWA that opens the dashboard full screen on a phone, with a Connect Group icon and the name
+"AOG Puri Dashboard". Publish it with GitHub Pages (Settings → Pages → `main` / `/docs`), put the Apps Script `/exec`
+URL in `docs/config.js`, then "Install app" (Android) or "Add to Home Screen" (iPhone). It needs `doGet` to use
+`XFrameOptionsMode.ALLOWALL` (already set in `Code.gs`), so deploy a new Apps Script version first. See `docs/README.md`.
+
 ## Dark mode
 
 The app follows the device's light / dark setting. The sun / moon button in the top bar switches it by hand; the

@@ -1368,5 +1368,8 @@
 
   saveToken(readToken());
   if (state.token) load(false); else showLogin('');
+
+  // When shown inside the installable launcher (docs/), tell it the app has really loaded.
+  try { if (window.top && window.top !== window) window.top.postMessage({ aogpuri: 'ready' }, '*'); } catch (e) { /* not framed */ }
 })();
 </script>

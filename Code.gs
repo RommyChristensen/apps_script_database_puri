@@ -162,7 +162,9 @@ function doGet() {
     .evaluate()
     .setTitle(CONFIG.APP_TITLE + ' · Coach Dashboard')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+    // ALLOWALL lets the installable launcher (docs/) show the dashboard full screen inside its own page.
+    // The app still needs a login; without this the dashboard can only be opened directly.
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /** Inline another project file (used by Index.html for CSS/JS). */
