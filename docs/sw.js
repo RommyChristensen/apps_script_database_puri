@@ -1,6 +1,6 @@
 /* Service worker of the launcher: keeps the launcher shell (not the Apps Script app) available
    offline. Requests to Google (the dashboard itself) are never touched. Bump CACHE to ship an update. */
-const CACHE = 'aog-launcher-v1';
+const CACHE = 'aog-launcher-v2';
 const SHELL = [
   './', 'index.html', 'config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',

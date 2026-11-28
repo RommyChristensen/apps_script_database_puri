@@ -41,4 +41,5 @@ Open it from the home screen icon.
 - On iPhone, Safari can clear the login of framed pages, so you may have to sign in more often. If sign-in doesn't stick, use the **Buka di browser** button on the launcher's problem screen.
 - After changing `config.js`, close and reopen the app (the launcher checks for the newest `config.js` whenever it is online).
 - To ship a launcher update, change `CACHE` in `sw.js` (e.g. `aog-launcher-v2`).
-- The icon is drawn by `node dev/build-icons.js` (edit it there and rerun).
+- The icon is rendered from `docs/icons/logo-source.jpg` by `node dev/build-icons.js`. To change the logo, replace that file and rerun the script.
+- The installed icon only updates after the app is reinstalled on some phones (remove it from the home screen and add it again).
